@@ -37,6 +37,7 @@ fn append(log: &Path, repo: &RepoRef, revision: &str, file: &DownloadedFile) -> 
         "file": file.path,
         "quant": parse_quant(&file.path).map(|quant| quant.name),
         "size_bytes": file.size,
+        "sha256": file.sha256,
         "path": path,
         "revision": revision,
         "downloaded_at": SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),

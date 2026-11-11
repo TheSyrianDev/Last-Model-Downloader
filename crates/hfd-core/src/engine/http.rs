@@ -127,6 +127,8 @@ pub struct DownloadedFile {
     pub skipped: bool,
     pub resumed_bytes: u64,
     pub engine: &'static str,
+    /// SHA-256 from the Hub (LFS files only); `None` for small git files.
+    pub sha256: Option<String>,
 }
 
 #[derive(Clone)]
@@ -278,6 +280,7 @@ impl Downloader {
                 skipped: true,
             });
             return Ok(DownloadedFile {
+                sha256: resolved.sha256.clone(),
                 path: path.to_string(),
                 local_path,
                 size: resolved.size,
@@ -299,6 +302,7 @@ impl Downloader {
                 skipped: true,
             });
             return Ok(DownloadedFile {
+                sha256: resolved.sha256.clone(),
                 path: path.to_string(),
                 local_path,
                 size: resolved.size,
@@ -357,6 +361,7 @@ impl Downloader {
                 skipped: false,
             });
             return Ok(DownloadedFile {
+                sha256: resolved.sha256.clone(),
                 path: path.to_string(),
                 local_path,
                 size: resolved.size,
@@ -400,6 +405,7 @@ impl Downloader {
         });
 
         Ok(DownloadedFile {
+            sha256: resolved.sha256.clone(),
             path: path.to_string(),
             local_path,
             size: resolved.size,
