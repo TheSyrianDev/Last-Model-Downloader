@@ -1542,6 +1542,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn xet_failure_marker_expires() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("hfd-xet-failed-test");
+        assert!(!xet_recently_failed(&marker));
+        fs::write(&marker, b"").unwrap();
+        assert!(xet_recently_failed(&marker));
+        let old = std::time::SystemTime::now() - XET_FAILURE_TTL - Duration::from_secs(60);
+        fs::File::options()
+            .write(true)
+            .open(&marker)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        assert!(!xet_recently_failed(&marker));
+    }
+
+    #[test]
     fn parses_content_range() {
         assert_eq!(
             parse_content_range("bytes 0-99/1000").unwrap(),
