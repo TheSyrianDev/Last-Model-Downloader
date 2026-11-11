@@ -28,6 +28,10 @@ const QUANTS: &[(&str, f32)] = &[
     ("TQ2_0", 2.06),
     ("Q2_K_S", 2.6),
     ("Q2_K_L", 3.0),
+    ("Q2_K_XL", 3.1),
+    ("IQ1_M_XL", 1.9),
+    ("IQ2_XXS_XL", 2.3),
+    ("IQ3_XXS_XL", 3.2),
     ("Q2_K", 2.96),
     ("Q3_K_XL", 4.0),
     ("Q3_K_S", 3.5),
@@ -109,6 +113,16 @@ mod tests {
 
     fn name(file: &str) -> Option<&'static str> {
         parse_quant(file).map(|quant| quant.name)
+    }
+
+    #[test]
+    fn parses_unsloth_dynamic_q2() {
+        assert_eq!(
+            parse_quant("M-UD-Q2_K_XL-00001-of-00002.gguf")
+                .unwrap()
+                .name,
+            "Q2_K_XL"
+        );
     }
 
     #[test]

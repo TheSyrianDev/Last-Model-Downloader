@@ -82,6 +82,8 @@ pub struct DownloadOptions {
     pub engine: Engine,
     /// Cap on total download speed in bytes per second, shared by all files.
     pub max_speed: Option<u64>,
+    /// Append each completed (non-skipped) download to this JSON file.
+    pub download_log: Option<PathBuf>,
 }
 
 impl Default for DownloadOptions {
@@ -94,6 +96,7 @@ impl Default for DownloadOptions {
             connections: 8,
             engine: Engine::Http,
             max_speed: None,
+            download_log: None,
         }
     }
 }
@@ -258,6 +261,23 @@ impl Downloader {
         revision: &str,
         sink: &EventSink,
     ) -> Result<DownloadedFile> {
+        let file = self.download_file_inner(repo, path, revision, sink).await?;
+        if !file.skipped
+            && let Some(log) = &self.options.download_log
+            && let Err(error) = crate::record::record_download(log, repo, revision, &file)
+        {
+            sink(Event::message(format!("warning: {error}")));
+        }
+        Ok(file)
+    }
+
+    async fn download_file_inner(
+        &self,
+        repo: &RepoRef,
+        path: &str,
+        revision: &str,
+        sink: &EventSink,
+    ) -> Result<DownloadedFile> {
         let sink = &crate::progress::with_rate(sink.clone());
         let resolved = self.hub.resolve(repo, path, revision).await?;
         let etag = resolved.etag.clone().unwrap_or_default();
@@ -321,7 +341,7 @@ impl Downloader {
 
         let xet_result = if engine == Engine::Xet {
             if self.options.engine == Engine::Auto {
-                sink(Event::Message(format!(
+                sink(Event::message(format!(
                     "{path}: using Xet; switching to HTTP if no data arrives for {}s",
                     crate::engine::xet::XET_STALL_TIMEOUT.as_secs()
                 )));
@@ -334,7 +354,7 @@ impl Downloader {
                 Err(error @ (Error::Xet(_) | Error::XetStalled(_)))
                     if self.options.engine == Engine::Auto =>
                 {
-                    sink(Event::Message(format!(
+                    sink(Event::message(format!(
                         "{path}: {error}; switching to HTTP (Xet skipped on this host for 24h)"
                     )));
                     let marker = self.xet_failure_path();
@@ -752,7 +772,7 @@ impl Downloader {
             return Ok(());
         };
 
-        sink(Event::Message(format!(
+        sink(Event::message(format!(
             "verifying sha256 for {}",
             target.reported_path().display()
         )));

@@ -3,7 +3,6 @@ mod queue;
 #[cfg(not(unix))]
 #[path = "queue_stub.rs"]
 mod queue;
-mod record;
 
 use std::collections::HashMap;
 use std::io::{self, IsTerminal};
@@ -453,6 +452,7 @@ async fn run_download(args: DownloadArgs) -> Result<()> {
             connections: args.connections,
             engine,
             max_speed: args.max_speed,
+            download_log: std::env::var_os("HFD_DOWNLOAD_LOG").map(PathBuf::from),
         },
     );
 
@@ -588,9 +588,6 @@ pub(crate) async fn execute_plans(
         in_flight -= 1;
         match result {
             Ok((_, Ok(file))) => {
-                if !file.skipped {
-                    record::record_download(repo, revision, &file);
-                }
                 summary.files += 1;
                 summary.total_bytes = summary.total_bytes.saturating_add(file.size);
                 if file.skipped {
@@ -872,7 +869,7 @@ impl Printer {
                 ),
                 Mode::Quiet => println!("{}", local_path.display()),
             },
-            Event::Message(message) => match self.mode {
+            Event::Message { text: message } => match self.mode {
                 Mode::Human => self.print_human(&message),
                 Mode::Agent => eprintln!("info\t{message}"),
                 Mode::Json => self.json("message", json!({ "message": message })),

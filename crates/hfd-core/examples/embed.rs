@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eta_secs.map_or("--".into(), |s| format!("{s}s")),
         ),
         Event::FileDone { local_path, .. } => println!("done: {}", local_path.display()),
-        Event::Message(message) => eprintln!("{message}"),
+        Event::Message { text: message } => eprintln!("{message}"),
         Event::FileStart { resumed_bytes, .. } if resumed_bytes > 0 => {
             eprintln!("resuming at {resumed_bytes} bytes")
         }

@@ -1,7 +1,11 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[derive(Debug, Clone)]
+/// Download events. With serde this is a stable, tagged JSON shape, e.g.
+/// `{"type":"progress","path":"m.gguf","downloaded":1,"total":2,"bytes_per_sec":3.0,"eta_secs":4}`.
+/// Field names and `type` tags are kept stable for GUI consumers.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
     FileStart {
         path: String,
@@ -24,7 +28,15 @@ pub enum Event {
         size: u64,
         skipped: bool,
     },
-    Message(String),
+    Message {
+        text: String,
+    },
+}
+
+impl Event {
+    pub fn message(text: impl Into<String>) -> Self {
+        Event::Message { text: text.into() }
+    }
 }
 
 pub type EventSink = Arc<dyn Fn(Event) + Send + Sync>;

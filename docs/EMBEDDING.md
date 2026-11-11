@@ -35,6 +35,11 @@ All download calls are async and need a multi-threaded Tokio runtime.
 | `max_speed` | `None` | A speed cap in bytes per second, shared by all files. |
 | `verify` | `Auto` | SHA-256 checking: `Auto`, `Always` or `Never`. |
 | `force` | `false` | Download again even if the file is already complete. |
+| `download_log` | `None` | Path of a `downloads.json` to append each completed download to (repo, file, quant, size_bytes, sha256, path, revision, downloaded_at). The CLI fills it from `HFD_DOWNLOAD_LOG`. |
+
+### Saving into a real folder (`local_dir`)
+
+Set `local_dir: Some(PathBuf::from("/home/me/AI/Models/qwen3-4b"))` to get plain files in that folder (repo subpaths are kept, e.g. `split_files/vae/ae.safetensors`). Partial-download state lives in `<local_dir>/.cache/huggingface/download/`, so pause and resume work the same as in the cache. `DownloadedFile.local_path` is the final file path. Leave it `None` to use the shared HF cache.
 
 ## Progress (`EventSink`)
 
@@ -43,7 +48,15 @@ All download calls are async and need a multi-threaded Tokio runtime.
 - `FileStart { path, size, destination, resumed_bytes }`
 - `Progress { path, downloaded, total, bytes_per_sec, eta_secs }`. This arrives about every 200 ms. Speed is averaged over about 5 seconds. `eta_secs` is `None` until the speed is known.
 - `FileDone { path, local_path, size, skipped }`
-- `Message(String)`: human-readable notices, such as an engine switch.
+- `Message { text }`: human-readable notices, such as an engine switch.
+
+`Event` implements `serde::Serialize` with a `type` tag, so a GUI can forward it as JSON without its own mapping:
+
+```json
+{"type":"progress","path":"m-Q4_K_M.gguf","downloaded":1048576,"total":2497281120,"bytes_per_sec":312000.0,"eta_secs":8000}
+```
+
+The tags are `file_start`, `progress`, `file_done` and `message`. These names and fields are stable.
 
 ## Pause, cancel and resume
 
@@ -53,7 +66,39 @@ Resume works in whole pieces of 8–64 MB, depending on file size. A piece that 
 
 ## Errors
 
-`hfd_core::Error` includes `Cancelled`, `Auth` (a gated or private repo that needs a token whose account accepted the repo's terms), `Http`, `Io` and `Xet`. Check free disk space before starting large files, though the downloader also checks it.
+`hfd_core::Error` variants a UI should handle:
+
+- `Cancelled`: you cancelled it.
+- `Auth { repo, detail }`: private or gated repo; the token's account must accept the repo's terms on the website.
+- `NotFound(_)`: wrong repo or file name.
+- `NoSpace { need, available }`: not enough disk space (checked before downloading).
+- `RateLimited { retry_after }`: the Hub asked to slow down.
+- `Checksum { .. }`: the file didn't match its SHA-256 and was not kept.
+- Network-level: `Http`, `Retryable`, `Status`, `UrlExpired`, `Interrupted`. Retrying later resumes.
+- `Xet` / `XetStalled`: only with the `Xet` or `Auto` engine; `Auto` switches to HTTP by itself.
+- Others (`Io`, `Json`, `Url`, `Invalid`, `Locked`, `RangeUnsupported`) are rare; show the message.
+
+## Models page API (`catalog`)
+
+Everything a model picker needs, without the CLI:
+
+- **Search:** `hub.search_models(&SearchQuery { text, gguf_only: true, sort: SearchSort::Downloads, limit: 20 })` returns `Vec<RepoSummary { id, downloads, likes, last_modified, gated, pipeline_tag, tags }>`. Sorts: `Downloads`, `Likes`, `Trending`, `Updated`. `gated.is_gated()` tells you a token and accepted terms are needed.
+- **Quants of a repo:** `hub.repo_quants(&repo, "main")` returns `RepoQuants { options, mmproj }`. Each `QuantOption { quant, bits_per_weight, name, files, size }` is one choice: a single file or a whole shard set merged (`files` lists every shard in order, `size` is the total). `mmproj` holds vision projector files a multimodal model needs alongside its weights. Options are sorted smallest first. `group_quants(&entries)` does the same on a tree you already have.
+- **Fits:** `MemoryBudget { free_ram_bytes, free_vram_bytes }.fit(option.size)` returns `Fit::Fits` (at most 80% of RAM + VRAM), `Fit::Tight` (80–100%) or `Fit::TooBig`. `fit_for(size, budget)` is the bare rule. Detecting free RAM/VRAM is up to the app.
+- **Download a choice:** call `download_file_cancellable` for each path in `option.files` (and the chosen `mmproj` file, if any).
+
+Runnable example: `cargo run -p hfd-core --example catalog -- SmolVLM-256M 8` (search text, free RAM in GiB).
+
+```rust
+let hits = hub.search_models(&SearchQuery { text: "qwen3 4b".into(), gguf_only: true, ..Default::default() }).await?;
+let repo = RepoRef::new(RepoType::Model, &hits[0].id);
+let quants = hub.repo_quants(&repo, "main").await?;
+let budget = MemoryBudget { free_ram_bytes: 16 << 30, free_vram_bytes: 0 };
+let pick = quants.options.iter().rev().find(|o| budget.fit(o.size) == Fit::Fits).unwrap();
+for path in &pick.files {
+    downloader.download_file_cancellable(&repo, path, "main", &sink, &cancel).await?;
+}
+```
 
 ## Platforms
 

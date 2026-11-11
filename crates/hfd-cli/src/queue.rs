@@ -1059,6 +1059,7 @@ async fn run_job(
             connections: request.connections,
             engine: request.engine,
             max_speed: request.max_speed,
+            download_log: std::env::var_os("HFD_DOWNLOAD_LOG").map(std::path::PathBuf::from),
         },
     );
 
@@ -1205,7 +1206,7 @@ fn progress_sink(context: DaemonContext, id: String) -> EventSink {
                     }
                     save = true;
                 }
-                Event::Message(message) => {
+                Event::Message { text: message } => {
                     progress.message = Some(message);
                 }
             }
