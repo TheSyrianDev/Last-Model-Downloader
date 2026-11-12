@@ -76,6 +76,8 @@ impl Engine {
 pub struct DownloadOptions {
     pub cache_dir: PathBuf,
     pub local_dir: Option<PathBuf>,
+    /// With `local_dir`, write each file as its basename directly in that folder.
+    pub flat: bool,
     pub force: bool,
     pub verify: VerifyMode,
     pub connections: usize,
@@ -91,6 +93,7 @@ impl Default for DownloadOptions {
         Self {
             cache_dir: PathBuf::from("."),
             local_dir: None,
+            flat: false,
             force: false,
             verify: VerifyMode::Auto,
             connections: 8,
@@ -196,6 +199,7 @@ impl Downloader {
             path,
             &etag,
             revision,
+            self.options.flat,
         )?;
         let complete = target.is_complete(resolved.size, self.options.force);
         let engine = if complete {
@@ -289,6 +293,7 @@ impl Downloader {
             path,
             &etag,
             revision,
+            self.options.flat,
         )?;
 
         if target.is_complete(resolved.size, self.options.force) {

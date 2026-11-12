@@ -1054,6 +1054,7 @@ async fn run_job(
         DownloadOptions {
             cache_dir: config.cache_dir.clone(),
             local_dir: request.local_dir.clone(),
+            flat: false,
             force: request.force,
             verify: request.verify,
             connections: request.connections,

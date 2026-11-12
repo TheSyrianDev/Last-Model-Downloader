@@ -26,10 +26,11 @@ impl Target {
         path: &str,
         etag: &str,
         revision: &str,
+        flat: bool,
     ) -> Result<Self> {
         if let Some(local_dir) = local_dir {
             Ok(Target::Local(LocalLayout::new(
-                local_dir, commit, path, etag, revision,
+                local_dir, commit, path, etag, flat,
             )?))
         } else {
             if etag.is_empty() {
@@ -257,15 +258,13 @@ pub struct LocalLayout {
 }
 
 impl LocalLayout {
-    fn new(
-        local_dir: &Path,
-        commit: &str,
-        path: &str,
-        etag: &str,
-        _revision: &str,
-    ) -> Result<Self> {
+    fn new(local_dir: &Path, commit: &str, path: &str, etag: &str, flat: bool) -> Result<Self> {
         validate_repo_path(path)?;
-        let dest_path = local_dir.join(path);
+        let dest_path = if flat {
+            local_dir.join(path.rsplit('/').next().unwrap_or(path))
+        } else {
+            local_dir.join(path)
+        };
         let metadata_root = local_dir
             .join(".cache")
             .join("huggingface")
@@ -511,13 +510,22 @@ mod tests {
     #[test]
     fn local_layout_uses_distinct_partials_for_same_basename() {
         let dir = tempfile::tempdir().unwrap();
-        let first =
-            LocalLayout::new(dir.path(), "commit", "a/weights.bin", "etag", "main").unwrap();
+        let first = LocalLayout::new(dir.path(), "commit", "a/weights.bin", "etag", false).unwrap();
         let second =
-            LocalLayout::new(dir.path(), "commit", "b/weights.bin", "etag", "main").unwrap();
+            LocalLayout::new(dir.path(), "commit", "b/weights.bin", "etag", false).unwrap();
         assert_ne!(first.partial_path, second.partial_path);
         assert_ne!(first.state_path, second.state_path);
         assert_ne!(first.lock_path, second.lock_path);
+    }
+
+    #[test]
+    fn local_layout_flat_uses_basename() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = "split_files/vae/ae.safetensors";
+        let flat = LocalLayout::new(dir.path(), "commit", path, "e", true).unwrap();
+        assert_eq!(flat.dest_path, dir.path().join("ae.safetensors"));
+        let nested = LocalLayout::new(dir.path(), "commit", path, "e", false).unwrap();
+        assert_eq!(nested.dest_path, dir.path().join(path));
     }
 
     #[test]
@@ -528,7 +536,7 @@ mod tests {
             "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
             "sub/weights.bin",
             "abc123",
-            "main",
+            false,
         )
         .unwrap();
         fs::create_dir_all(layout.dest_path.parent().unwrap()).unwrap();

@@ -152,6 +152,11 @@ struct DownloadArgs {
     #[arg(long = "local-dir", value_name = "DIR")]
     local_dir: Option<PathBuf>,
 
+    /// With --local-dir, put each file directly in that folder by basename,
+    /// dropping the repo's subfolders.
+    #[arg(long = "flat", requires = "local_dir")]
+    flat: bool,
+
     /// Download again even when a valid local copy exists.
     #[arg(long = "force-download")]
     force_download: bool,
@@ -447,6 +452,7 @@ async fn run_download(args: DownloadArgs) -> Result<()> {
         DownloadOptions {
             cache_dir: config.cache_dir.clone(),
             local_dir: args.local_dir.clone(),
+            flat: args.flat,
             force: args.force_download,
             verify: args.verify.into(),
             connections: args.connections,
