@@ -84,7 +84,7 @@ Everything a model picker needs, without the CLI:
 
 - **Search:** `hub.search_models(&SearchQuery { text, gguf_only: true, sort: SearchSort::Downloads, limit: 20 })` returns `Vec<RepoSummary { id, downloads, likes, last_modified, gated, pipeline_tag, tags }>`. Sorts: `Downloads`, `Likes`, `Trending`, `Updated`. `gated.is_gated()` tells you a token and accepted terms are needed.
 - **Quants of a repo:** `hub.repo_quants(&repo, "main")` returns `RepoQuants { options, mmproj }`. Each `QuantOption { quant, bits_per_weight, name, files, size }` is one choice: a single file or a whole shard set merged (`files` lists every shard in order, `size` is the total). `mmproj` holds vision projector files a multimodal model needs alongside its weights. Options are sorted smallest first. `group_quants(&entries)` does the same on a tree you already have.
-- **Fits:** `MemoryBudget { free_ram_bytes, free_vram_bytes }.fit(option.size)` returns `Fit::Fits` (at most 80% of RAM + VRAM), `Fit::Tight` (80–100%) or `Fit::TooBig`. `fit_for(size, budget)` is the bare rule. Detecting free RAM/VRAM is up to the app.
+- **Fits:** `MemoryBudget { free_ram_bytes, free_vram_bytes }.fit(option.size)` returns `Fit::Fits` (size ≤ free RAM), `Fit::Tight` (up to 10% over free RAM) or `Fit::TooBig`. VRAM is not counted. `fit_for(size, budget)` is the bare rule. Detecting free RAM is up to the app.
 - **Download a choice:** call `download_file_cancellable` for each path in `option.files` (and the chosen `mmproj` file, if any).
 
 Runnable example: `cargo run -p hfd-core --example catalog -- SmolVLM-256M 8` (search text, free RAM in GiB).

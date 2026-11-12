@@ -103,16 +103,17 @@ pub struct RepoQuants {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Fit {
-    /// Size is at most 80% of the budget.
+    /// Size fits in free RAM.
     Fits,
-    /// Size is within the budget but leaves under 20% headroom.
+    /// Size is over free RAM but at most 10% over it.
     Tight,
-    /// Larger than the budget.
+    /// More than 10% over free RAM.
     TooBig,
 }
 
-/// Memory available for a model. The rule is that free RAM must be at least
-/// the GGUF size; VRAM, if any, is added as offload space.
+/// Memory available for a model. Matches the registry rule: fits if free RAM
+/// is at least the GGUF size, tight if up to 10% short, too big beyond that.
+/// VRAM is reported by the app but does not count toward the rule.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct MemoryBudget {
     pub free_ram_bytes: u64,
@@ -120,23 +121,19 @@ pub struct MemoryBudget {
 }
 
 impl MemoryBudget {
-    pub fn total(&self) -> u64 {
-        self.free_ram_bytes.saturating_add(self.free_vram_bytes)
-    }
-
     pub fn fit(&self, size: u64) -> Fit {
-        fit_for(size, self.total())
+        fit_for(size, self.free_ram_bytes)
     }
 }
 
-/// `Fits` up to 80% of `budget`, `Tight` up to 100%, otherwise `TooBig`.
+/// `Fits` if `size <= budget`, `Tight` if at most 10% over, otherwise `TooBig`.
 pub fn fit_for(size: u64, budget: u64) -> Fit {
-    if size > budget {
-        Fit::TooBig
-    } else if (size as u128) * 5 > (budget as u128) * 4 {
+    if size <= budget {
+        Fit::Fits
+    } else if (size as u128) * 10 <= (budget as u128) * 11 {
         Fit::Tight
     } else {
-        Fit::Fits
+        Fit::TooBig
     }
 }
 
@@ -270,15 +267,18 @@ mod tests {
 
     #[test]
     fn fit_thresholds() {
-        assert_eq!(fit_for(80, 100), Fit::Fits);
-        assert_eq!(fit_for(81, 100), Fit::Tight);
-        assert_eq!(fit_for(100, 100), Fit::Tight);
-        assert_eq!(fit_for(101, 100), Fit::TooBig);
+        assert_eq!(fit_for(100, 100), Fit::Fits);
+        assert_eq!(fit_for(101, 100), Fit::Tight);
+        assert_eq!(fit_for(110, 100), Fit::Tight);
+        assert_eq!(fit_for(111, 100), Fit::TooBig);
         let b = MemoryBudget {
             free_ram_bytes: 60,
             free_vram_bytes: 40,
         };
-        assert_eq!(b.fit(90), Fit::Tight);
+        // VRAM does not count toward the rule.
+        assert_eq!(b.fit(60), Fit::Fits);
+        assert_eq!(b.fit(66), Fit::Tight);
+        assert_eq!(b.fit(70), Fit::TooBig);
     }
 
     #[test]

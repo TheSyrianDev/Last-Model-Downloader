@@ -1,3 +1,5 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
@@ -219,52 +221,72 @@ impl HubClient {
             ));
         }
         let url = self.resolve_url(repo, path, revision);
-        let response = self
-            .resolve_client
-            .head(&url)
-            .headers(self.auth_headers())
-            .timeout(Duration::from_secs(90))
-            .send()
-            .await?;
+        self.head_url(repo, path, revision, url, 0).await
+    }
 
-        let status = response.status();
-        let headers = response.headers().clone();
-        log_rate_limit(&headers);
+    /// HEAD one URL, following Hub-side redirects (renamed repos, relative
+    /// `location`s) so the ETag and commit headers come from the final answer.
+    fn head_url<'a>(
+        &'a self,
+        repo: &'a RepoRef,
+        path: &'a str,
+        revision: &'a str,
+        url: String,
+        depth: u8,
+    ) -> Pin<Box<dyn Future<Output = Result<HeadInfo>> + Send + 'a>> {
+        Box::pin(async move {
+            let response = self
+                .resolve_client
+                .head(&url)
+                .headers(self.auth_headers())
+                .timeout(Duration::from_secs(90))
+                .send()
+                .await?;
 
-        if status.is_redirection() {
-            let location = headers
-                .get("location")
-                .and_then(|value| value.to_str().ok())
-                .ok_or_else(|| Error::Status {
-                    status: status.as_u16(),
-                    url: url.clone(),
-                    body: "redirect without a Location header".to_string(),
-                })?;
-            let location = Url::parse(&url)?.join(location)?.to_string();
-            return Ok(HeadInfo {
-                auth_required: same_host(&location, &self.config.endpoint),
-                expires_at: url_expiry(&location),
-                location,
-                headers,
-                redirected: true,
-            });
-        }
+            let status = response.status();
+            let headers = response.headers().clone();
+            log_rate_limit(&headers);
 
-        if status == StatusCode::METHOD_NOT_ALLOWED || status == StatusCode::NOT_IMPLEMENTED {
-            return self.head_info_via_range(repo, path, revision).await;
-        }
+            if status.is_redirection() {
+                let location = headers
+                    .get("location")
+                    .and_then(|value| value.to_str().ok())
+                    .ok_or_else(|| Error::Status {
+                        status: status.as_u16(),
+                        url: url.clone(),
+                        body: "redirect without a Location header".to_string(),
+                    })?;
+                let location = Url::parse(&url)?.join(location)?.to_string();
+                if same_host(&location, &self.config.endpoint) && depth < 5 {
+                    return self
+                        .head_url(repo, path, revision, location, depth + 1)
+                        .await;
+                }
+                return Ok(HeadInfo {
+                    auth_required: same_host(&location, &self.config.endpoint),
+                    expires_at: url_expiry(&location),
+                    location,
+                    headers,
+                    redirected: true,
+                });
+            }
 
-        if status.is_success() {
-            return Ok(HeadInfo {
-                location: url,
-                auth_required: true,
-                expires_at: None,
-                headers,
-                redirected: false,
-            });
-        }
+            if status == StatusCode::METHOD_NOT_ALLOWED || status == StatusCode::NOT_IMPLEMENTED {
+                return self.head_info_via_range(repo, path, revision).await;
+            }
 
-        Err(self.response_error(status, &url, response).await)
+            if status.is_success() {
+                return Ok(HeadInfo {
+                    location: url,
+                    auth_required: true,
+                    expires_at: None,
+                    headers,
+                    redirected: false,
+                });
+            }
+
+            Err(self.response_error(status, &url, response).await)
+        })
     }
 
     async fn head_info_via_range(
@@ -321,16 +343,42 @@ impl HubClient {
     }
 
     async fn probe_size(&self, location: &str, auth_required: bool) -> Result<Option<u64>> {
-        let mut request = self
-            .resolve_client
-            .get(location)
-            .header("range", "bytes=0-0")
-            .header("accept-encoding", "identity")
-            .timeout(Duration::from_secs(90));
-        if auth_required && let Some(token) = &self.token {
-            request = request.bearer_auth(token);
-        }
-        let response = request.send().await?;
+        // The client does not follow redirects, so follow them here: renamed
+        // repos answer with a 302 to the canonical repo name.
+        let mut current = location.to_string();
+        let mut hops = 0;
+        let response = loop {
+            let mut request = self
+                .resolve_client
+                .get(&current)
+                .header("range", "bytes=0-0")
+                .header("accept-encoding", "identity")
+                .timeout(Duration::from_secs(90));
+            if auth_required && let Some(token) = &self.token {
+                request = request.bearer_auth(token);
+            }
+            let response = request.send().await?;
+            if !response.status().is_redirection() {
+                break response;
+            }
+            hops += 1;
+            if hops > 5 {
+                return Err(Error::Invalid(format!(
+                    "too many redirects probing {location}"
+                )));
+            }
+            let next = response
+                .headers()
+                .get("location")
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| Error::Status {
+                    status: response.status().as_u16(),
+                    url: current.clone(),
+                    body: "redirect without a Location header".to_string(),
+                })?;
+            current = Url::parse(&current)?.join(next)?.to_string();
+        };
+        let location = current;
         let status = response.status();
         let headers = response.headers();
 
@@ -343,7 +391,7 @@ impl HubClient {
         if status.is_success() {
             return Ok(header_u64(headers, "content-length"));
         }
-        Err(self.response_error(status, location, response).await)
+        Err(self.response_error(status, &location, response).await)
     }
 
     pub async fn list_tree(&self, repo: &RepoRef, revision: &str) -> Result<Vec<TreeEntry>> {
