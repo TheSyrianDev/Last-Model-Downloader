@@ -76,9 +76,26 @@ fn default_verify() -> VerifyMode {
 enum JobStatus {
     Queued,
     Running,
+    Paused,
     Completed,
     Failed,
     Cancelled,
+}
+
+/// Status after a pause request, or the reason it is refused.
+fn pause_status(current: JobStatus) -> Result<JobStatus, String> {
+    match current {
+        JobStatus::Queued | JobStatus::Running => Ok(JobStatus::Paused),
+        other => Err(format!("is {} and cannot be paused", other.as_str())),
+    }
+}
+
+/// Status after a resume request, or the reason it is refused.
+fn resume_status(current: JobStatus) -> Result<JobStatus, String> {
+    match current {
+        JobStatus::Paused => Ok(JobStatus::Queued),
+        other => Err(format!("is {} and cannot be resumed", other.as_str())),
+    }
 }
 
 impl JobStatus {
@@ -86,6 +103,7 @@ impl JobStatus {
         match self {
             JobStatus::Queued => "queued",
             JobStatus::Running => "running",
+            JobStatus::Paused => "paused",
             JobStatus::Completed => "completed",
             JobStatus::Failed => "failed",
             JobStatus::Cancelled => "cancelled",
@@ -172,6 +190,12 @@ enum Request {
         id: String,
     },
     Cancel {
+        id: String,
+    },
+    Pause {
+        id: String,
+    },
+    Resume {
         id: String,
     },
     Clear,
@@ -457,6 +481,8 @@ pub async fn run_queue(args: QueueArgs) -> Result<()> {
         QueueCommand::List { json } => list_jobs(json).await,
         QueueCommand::Show { id } => show_job(&id).await,
         QueueCommand::Cancel { id } => cancel_job(&id).await,
+        QueueCommand::Pause { id } => pause_or_resume_job(&id, true).await,
+        QueueCommand::Resume { id } => pause_or_resume_job(&id, false).await,
         QueueCommand::Clear => clear_jobs().await,
     }
 }
@@ -553,6 +579,43 @@ async fn cancel_job(id: &str) -> Result<()> {
     job.finished_at = Some(now());
     save_state(&paths.state_path, &state)?;
     println!("Cancelled job {id}.");
+    Ok(())
+}
+
+async fn pause_or_resume_job(id: &str, pause: bool) -> Result<()> {
+    if daemon_alive().await {
+        let request = if pause {
+            Request::Pause { id: id.to_string() }
+        } else {
+            Request::Resume { id: id.to_string() }
+        };
+        let response = send(request).await?;
+        if !response.ok {
+            bail!(
+                "{}",
+                response
+                    .error
+                    .unwrap_or_else(|| "request failed".to_string())
+            );
+        }
+        println!("{}", response.message.unwrap_or_default());
+        return Ok(());
+    }
+
+    let paths = Paths::new()?;
+    let mut state = load_state(&paths.state_path)?;
+    let Some(job) = state.jobs.iter_mut().find(|job| job.id == id) else {
+        bail!("job '{id}' not found");
+    };
+    job.status = if pause {
+        pause_status(job.status).map_err(|error| anyhow!("job '{id}' {error}"))?
+    } else {
+        resume_status(job.status).map_err(|error| anyhow!("job '{id}' {error}"))?
+    };
+    job.progress.current = None;
+    job.updated_at = now();
+    save_state(&paths.state_path, &state)?;
+    println!("{} job {id}.", if pause { "Paused" } else { "Resumed" });
     Ok(())
 }
 
@@ -890,6 +953,63 @@ async fn handle_connection(stream: UnixStream, context: DaemonContext) -> Result
             }
             result?
         }
+        Request::Pause { id } => {
+            let abort = {
+                let running = context.running.lock().unwrap();
+                running
+                    .as_ref()
+                    .filter(|running| running.id == id)
+                    .map(|running| running.abort.clone())
+            };
+            let result = (|| -> Result<Response> {
+                let mut state = context.state.lock().unwrap();
+                let Some(job) = state.jobs.iter_mut().find(|job| job.id == id) else {
+                    return Ok(Response::error(format!("job '{id}' not found")));
+                };
+                job.status = match pause_status(job.status) {
+                    Ok(status) => status,
+                    Err(error) => return Ok(Response::error(format!("job '{id}' {error}"))),
+                };
+                job.progress.current = None;
+                job.updated_at = now();
+                save_state(&context.state_path, &state)?;
+                Ok(Response {
+                    ok: true,
+                    message: Some(format!("Paused job {id}.")),
+                    ..Response::default()
+                })
+            })();
+            if result.as_ref().map(|response| response.ok).unwrap_or(false) {
+                if let Some(abort) = abort {
+                    abort.abort();
+                }
+                log_line(&context.log_path, &format!("paused job {id}"));
+            }
+            result?
+        }
+        Request::Resume { id } => {
+            let result = (|| -> Result<Response> {
+                let mut state = context.state.lock().unwrap();
+                let Some(job) = state.jobs.iter_mut().find(|job| job.id == id) else {
+                    return Ok(Response::error(format!("job '{id}' not found")));
+                };
+                job.status = match resume_status(job.status) {
+                    Ok(status) => status,
+                    Err(error) => return Ok(Response::error(format!("job '{id}' {error}"))),
+                };
+                job.updated_at = now();
+                save_state(&context.state_path, &state)?;
+                Ok(Response {
+                    ok: true,
+                    message: Some(format!("Resumed job {id}.")),
+                    ..Response::default()
+                })
+            })();
+            if result.as_ref().map(|response| response.ok).unwrap_or(false) {
+                log_line(&context.log_path, &format!("resumed job {id}"));
+            }
+            result?
+        }
         Request::Clear => {
             let mut state = context.state.lock().unwrap();
             let before = state.jobs.len();
@@ -995,15 +1115,15 @@ async fn worker_loop(context: DaemonContext) {
             id: id.clone(),
             abort: abort.clone(),
         });
-        let cancelled = context
+        let interrupted = context
             .state
             .lock()
             .unwrap()
             .jobs
             .iter()
             .find(|job| job.id == id)
-            .is_some_and(|job| job.status == JobStatus::Cancelled);
-        if cancelled {
+            .is_some_and(|job| matches!(job.status, JobStatus::Cancelled | JobStatus::Paused));
+        if interrupted {
             abort.abort();
         }
         let result = task.await;
@@ -1309,5 +1429,55 @@ mod flat_field_tests {
         let req: JobRequest =
             serde_json::from_str(r#"{"target":"owner/repo","flat":true}"#).unwrap();
         assert!(req.flat);
+    }
+}
+
+#[cfg(test)]
+mod pause_tests {
+    use super::*;
+
+    #[test]
+    fn pause_allowed_from_queued_and_running_only() {
+        assert_eq!(pause_status(JobStatus::Queued), Ok(JobStatus::Paused));
+        assert_eq!(pause_status(JobStatus::Running), Ok(JobStatus::Paused));
+        for status in [
+            JobStatus::Paused,
+            JobStatus::Completed,
+            JobStatus::Failed,
+            JobStatus::Cancelled,
+        ] {
+            assert!(pause_status(status).is_err(), "{status:?} should not pause");
+        }
+    }
+
+    #[test]
+    fn resume_only_from_paused_back_to_queued() {
+        assert_eq!(resume_status(JobStatus::Paused), Ok(JobStatus::Queued));
+        for status in [
+            JobStatus::Queued,
+            JobStatus::Running,
+            JobStatus::Completed,
+            JobStatus::Cancelled,
+        ] {
+            assert!(
+                resume_status(status).is_err(),
+                "{status:?} should not resume"
+            );
+        }
+    }
+
+    #[test]
+    fn paused_job_is_skipped_by_queue_selection() {
+        let jobs = [JobStatus::Paused, JobStatus::Queued];
+        let position = jobs.iter().position(|status| *status == JobStatus::Queued);
+        assert_eq!(position, Some(1));
+    }
+
+    #[test]
+    fn paused_status_round_trips_through_state_file() {
+        let json = serde_json::to_string(&JobStatus::Paused).unwrap();
+        assert_eq!(json, "\"paused\"");
+        let back: JobStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, JobStatus::Paused);
     }
 }

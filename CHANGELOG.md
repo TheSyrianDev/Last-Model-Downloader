@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `hfd queue pause <id>` and `hfd queue resume <id>`. A paused queued job is skipped by the worker. A paused running job is stopped, and its partial files stay on disk, so resume continues them. Paused jobs can still be cancelled.
+- Status `paused` in `hfd queue list --json` and `hfd queue show <id> --json` for polling.
+
 ## 0.2.0
 
 ### Changed

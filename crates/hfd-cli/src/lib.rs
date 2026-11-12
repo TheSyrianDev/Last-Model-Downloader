@@ -70,8 +70,18 @@ enum QueueCommand {
         /// Job id.
         id: String,
     },
-    /// Cancel a queued or running job.
+    /// Cancel a queued, running, or paused job.
     Cancel {
+        /// Job id.
+        id: String,
+    },
+    /// Pause a queued or running job. Partial files are kept, so a resume continues them.
+    Pause {
+        /// Job id.
+        id: String,
+    },
+    /// Resume a paused job by putting it back in the queue.
+    Resume {
         /// Job id.
         id: String,
     },
