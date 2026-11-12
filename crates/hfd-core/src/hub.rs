@@ -394,6 +394,31 @@ impl HubClient {
         Err(self.response_error(status, &location, response).await)
     }
 
+    /// GET with up to `LISTING_ATTEMPTS` tries. Only transport errors (connect,
+    /// timeout, reset) are retried; HTTP status responses are returned as-is.
+    async fn get_with_retry(&self, url: &str, timeout: Duration) -> Result<Response> {
+        let mut attempt = 0u32;
+        loop {
+            attempt += 1;
+            let result = self
+                .api_client
+                .get(url)
+                .headers(self.auth_headers())
+                .timeout(timeout)
+                .send()
+                .await;
+            match result {
+                Ok(response) => return Ok(response),
+                Err(err) if attempt < LISTING_ATTEMPTS => {
+                    let wait = Duration::from_secs(2u64.pow(attempt - 1));
+                    tracing::warn!(attempt, ?wait, error = %err, "listing request failed; retrying");
+                    tokio::time::sleep(wait).await;
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+    }
+
     pub async fn list_tree(&self, repo: &RepoRef, revision: &str) -> Result<Vec<TreeEntry>> {
         let mut next = Some(self.tree_url(repo, revision));
         let mut entries = Vec::new();
@@ -407,13 +432,7 @@ impl HubClient {
                 ));
             }
 
-            let response = self
-                .api_client
-                .get(&url)
-                .headers(self.auth_headers())
-                .timeout(Duration::from_secs(90))
-                .send()
-                .await?;
+            let response = self.get_with_retry(&url, Duration::from_secs(90)).await?;
             let status = response.status();
             log_rate_limit(response.headers());
 
@@ -679,5 +698,45 @@ mod tests {
     fn encodes_revisions() {
         assert_eq!(encode_revision("refs/pr/1"), "refs/pr/1");
         assert_eq!(encode_revision("feature/foo"), "feature%2Ffoo");
+    }
+}
+
+const LISTING_ATTEMPTS: u32 = 3;
+
+#[cfg(test)]
+mod listing_retry_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn listing_retries_transport_errors_then_succeeds() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            // First two connections are dropped without a response (transport error).
+            for _ in 0..2 {
+                let (sock, _) = listener.accept().await.unwrap();
+                drop(sock);
+            }
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 1024];
+            let _ = sock.read(&mut buf).await;
+            let body = "[]";
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            sock.write_all(resp.as_bytes()).await.unwrap();
+        });
+
+        let mut cfg = Config::from_env();
+        cfg.endpoint = format!("http://{addr}");
+        let hub = HubClient::new(cfg, None).unwrap();
+        let resp = hub
+            .get_with_retry(&format!("http://{addr}/x"), Duration::from_secs(5))
+            .await
+            .expect("succeeds on third attempt");
+        assert!(resp.status().is_success());
     }
 }
