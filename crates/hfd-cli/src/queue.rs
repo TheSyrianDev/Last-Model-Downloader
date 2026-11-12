@@ -44,6 +44,8 @@ struct JobRequest {
     #[serde(default)]
     local_dir: Option<PathBuf>,
     #[serde(default)]
+    flat: bool,
+    #[serde(default)]
     force: bool,
     #[serde(default = "default_connections")]
     connections: usize,
@@ -362,6 +364,7 @@ fn default_request(args: &DownloadArgs, engine: Engine) -> JobRequest {
         exclude: args.exclude.clone(),
         cache_dir: args.cache_dir.clone(),
         local_dir: args.local_dir.clone(),
+        flat: args.flat,
         force: args.force_download,
         connections: args.connections,
         max_workers: args.max_workers,
@@ -1054,7 +1057,7 @@ async fn run_job(
         DownloadOptions {
             cache_dir: config.cache_dir.clone(),
             local_dir: request.local_dir.clone(),
-            flat: false,
+            flat: request.flat,
             force: request.force,
             verify: request.verify,
             connections: request.connections,
@@ -1249,6 +1252,7 @@ mod tests {
                 exclude: Vec::new(),
                 cache_dir: None,
                 local_dir: None,
+                flat: false,
                 force: false,
                 connections: 8,
                 max_workers: 8,
@@ -1286,5 +1290,24 @@ mod tests {
         let id = next_job_id(&state);
         state.jobs.push(sample_job(&id));
         assert_ne!(next_job_id(&state), id);
+    }
+}
+
+#[cfg(test)]
+mod flat_field_tests {
+    use super::JobRequest;
+
+    #[test]
+    fn job_request_without_flat_still_loads() {
+        let old = r#"{"target":"owner/repo","local_dir":"/tmp/x"}"#;
+        let req: JobRequest = serde_json::from_str(old).expect("old queue JSON loads");
+        assert!(!req.flat);
+    }
+
+    #[test]
+    fn job_request_reads_flat() {
+        let req: JobRequest =
+            serde_json::from_str(r#"{"target":"owner/repo","flat":true}"#).unwrap();
+        assert!(req.flat);
     }
 }
