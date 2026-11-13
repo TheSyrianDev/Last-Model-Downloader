@@ -23,16 +23,19 @@ Needs Rust 1.88 or newer.
 ```sh
 hfd download <repo-id | hf:// URI | web URL> [paths...]
 hfd download Qwen/Qwen3-0.6B --include "*.safetensors" --local-dir ./model
+hfd download <repo> <file.gguf> --local-dir ./models --flat   # files land by basename, no subfolders
 hfd download <repo> --dry-run          # resolve files and print the plan
 ```
 
-Useful flags: `--repo-type`, `--revision`, `--include` / `--exclude` (globs, repeatable), `--cache-dir`, `--local-dir`, `--force`, `--verify`, `--json`, `--quiet`.
+Useful flags: `--type` (model, dataset, space), `--revision`, `--include` / `--exclude` (globs, repeatable), `--cache-dir`, `--local-dir`, `--flat`, `--force-download`, `--verify auto|always|never`, `--max-workers`, `--connections`, `--max-speed` (e.g. `5M`), `--engine auto|http|xet`, `--json`, `--quiet`.
+
+Plain HTTP is the default engine. Xet is opt-in (`--engine auto` or `--engine xet`); if Xet stalls, hfd falls back to HTTP and skips Xet on that host for 24 hours.
 
 Downloads can run through a background daemon with a persistent queue:
 
 ```sh
 hfd download <repo> --detach           # enqueue and return immediately
-hfd queue list | show <id> | cancel <id> | clear
+hfd queue list | show <id> | pause <id> | resume <id> | cancel <id> | clear
 hfd daemon                             # run the daemon in the foreground
 ```
 
