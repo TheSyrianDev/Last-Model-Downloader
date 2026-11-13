@@ -176,12 +176,7 @@ impl Downloader {
     /// Marker written when Xet fails on this endpoint, so later downloads
     /// skip straight to HTTP for a day instead of waiting out a stall.
     fn xet_failure_path(&self) -> PathBuf {
-        let config = self.hub.config();
-        let host = Url::parse(&config.endpoint)
-            .ok()
-            .and_then(|url| url.host_str().map(str::to_string))
-            .unwrap_or_else(|| "default".to_string());
-        config.xet_cache_dir.join(format!("hfd-xet-failed-{host}"))
+        xet_marker_path(self.hub.config())
     }
 
     pub fn hub(&self) -> &HubClient {
@@ -1598,6 +1593,19 @@ pub(crate) fn remove_file_if_exists(path: &Path) -> Result<()> {
 }
 
 const XET_FAILURE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+
+fn xet_marker_path(config: &crate::config::Config) -> PathBuf {
+    let host = Url::parse(&config.endpoint)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_string))
+        .unwrap_or_else(|| "default".to_string());
+    config.xet_cache_dir.join(format!("hfd-xet-failed-{host}"))
+}
+
+/// True when Xet failed on this endpoint in the last 24 hours, so downloads go straight to HTTP.
+pub fn xet_failed_recently(config: &crate::config::Config) -> bool {
+    xet_recently_failed(&xet_marker_path(config))
+}
 
 fn xet_recently_failed(marker: &Path) -> bool {
     fs::metadata(marker)

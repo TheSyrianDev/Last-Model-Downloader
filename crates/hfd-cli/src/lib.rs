@@ -1,4 +1,5 @@
 #[cfg(unix)]
+mod doctor;
 mod queue;
 #[cfg(not(unix))]
 #[path = "queue_stub.rs"]
@@ -47,6 +48,8 @@ enum Commands {
     Queue(QueueArgs),
     /// Run the download daemon in the foreground.
     Daemon(DaemonArgs),
+    /// Check network, Xet/HTTP state and free disk, and recommend settings. Read-only.
+    Doctor(doctor::DoctorArgs),
     #[command(name = "__daemon", hide = true)]
     InternalDaemon,
 }
@@ -322,6 +325,11 @@ pub async fn run() {
         Commands::Queue(args) => queue::run_queue(args).await,
         Commands::Daemon(args) => queue::daemon_command(args.stop).await,
         Commands::InternalDaemon => queue::daemon_command(false).await,
+        Commands::Doctor(args) => match doctor::run(args).await {
+            Ok(true) => Ok(()),
+            Ok(false) => std::process::exit(2),
+            Err(error) => Err(error),
+        },
     };
 
     if let Err(error) = result {
