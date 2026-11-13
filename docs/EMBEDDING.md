@@ -110,6 +110,8 @@ let jobs = queue.list();
 assert!(matches!(queue.get(&id).map(|j| j.status), Some(Status::Cancelled)));
 ```
 
+`run()` owns the jobs it starts. Dropping its future (for example with `JoinHandle::abort`) stops any running download at once. Its partial files stay on disk, and the job comes back as `Queued` when the queue is reopened. Dropping the `Queue` alone does not stop jobs, since `run()` still holds them.
+
 Events are JSON-tagged with `type`: `queued`, `started`, `progress` (`id`, `path`, `bytes`, `total`, `bytes_per_sec`, `eta_secs`), `paused`, `cancelled` (`deleted_partial`), `finished` (`sha_ok`), and `failed` (`reason`, `retryable`). `resume` only works on `Paused` jobs. A `Failed` job is final: add a new job to retry it. A job that was `Running` when the process stopped comes back as `Queued`, and its partial files let the download continue. `finished.sha_ok` is `true` for every job that completes, because each file is checked before it counts as done.
 
 ## Errors
