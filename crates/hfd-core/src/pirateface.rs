@@ -341,3 +341,77 @@ mod aria_tests {
         assert!(b.fetch(&entry(), &[], dir.path()).is_err());
     }
 }
+
+/// URL for the `GET /api/torrents?repo=` lookup. The repo id is percent-encoded
+/// except for the `/` separator, which the API expects literally.
+pub fn lookup_url(api_base: &str, repo_id: &str) -> String {
+    let encoded: String = repo_id
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect();
+    format!(
+        "{}/api/torrents?repo={encoded}",
+        api_base.trim_end_matches('/')
+    )
+}
+
+/// Interpret a lookup response. 404 means "not listed" (`Ok(None)`); any other
+/// non-2xx status is an error, so a server outage is never read as "absent".
+pub fn interpret_lookup(status: u16, body: &str) -> Result<Option<Entry>> {
+    match status {
+        404 => Ok(None),
+        200..=299 => parse_entry(body),
+        other => Err(Error::Invalid(format!(
+            "Pirate Face lookup failed: HTTP {other}"
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod lookup_tests {
+    use super::*;
+
+    const LISTED: &str = include_str!("../tests/fixtures/pirateface/torrents_listed.json");
+    const PF_ONLY: &str = include_str!("../tests/fixtures/pirateface/torrents_pf_only.json");
+    const BAD_SHA: &str = include_str!("../tests/fixtures/pirateface/torrents_bad_sha.json");
+
+    #[test]
+    fn url_keeps_slash_and_encodes_others() {
+        assert_eq!(
+            lookup_url("https://pirateface.co/", "acme/tiny v2"),
+            "https://pirateface.co/api/torrents?repo=acme/tiny%20v2"
+        );
+    }
+
+    #[test]
+    fn listed_entry_parses() {
+        let e = interpret_lookup(200, LISTED).unwrap().unwrap();
+        assert!(e.hf);
+        assert_eq!(e.files.len(), 1);
+    }
+
+    #[test]
+    fn pf_only_entry_is_flagged() {
+        assert!(!interpret_lookup(200, PF_ONLY).unwrap().unwrap().hf);
+    }
+
+    #[test]
+    fn not_listed_is_none() {
+        assert!(interpret_lookup(404, "").unwrap().is_none());
+    }
+
+    #[test]
+    fn server_error_is_not_absence() {
+        assert!(interpret_lookup(503, "").is_err());
+    }
+
+    #[test]
+    fn bad_sha_is_rejected() {
+        assert!(interpret_lookup(200, BAD_SHA).is_err());
+    }
+}
