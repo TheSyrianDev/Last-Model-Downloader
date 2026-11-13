@@ -183,7 +183,8 @@ revision, set of files (order ignored) and `local_dir` as an existing job return
 that job's id and creates nothing.
 
 - If the existing job is `Done`, `add` still returns its id; check its status.
-- `Queue::add_forced(spec)` queues a new run when the match is `Done`. Other
-  statuses (queued, running, paused, failed, cancelled) still return the existing id.
-  To retry a failed or cancelled job, resume or re-run it explicitly.
+- `Queue::add_forced(spec)` queues a new run when the match is `Done`.
+- A match that is `Failed` or `Cancelled` is reset to `Queued` under the same id
+  (both `add` and `add_forced`). Partial files are kept, so the run resumes.
+- Queued, running and paused matches return the existing id unchanged.
 - A different `local_dir` or file set is a separate job.

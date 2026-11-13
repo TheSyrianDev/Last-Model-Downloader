@@ -198,7 +198,7 @@ impl Queue {
     }
 
     /// Like `add`, but a request matching a finished (`Done`) job queues a new run.
-    /// Other statuses still return the existing job.
+    /// Failed or cancelled matches are reset to queued in either case.
     pub fn add_forced(&self, spec: JobSpec) -> Result<String> {
         self.add_inner(spec, true)
     }
@@ -209,12 +209,23 @@ impl Queue {
         }
         let key = dedup_key(&spec);
         {
-            let inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().unwrap();
             let existing = inner
                 .jobs
-                .iter()
+                .iter_mut()
                 .find(|j| dedup_key(&j.spec) == key && !(force && j.status == Status::Done));
             if let Some(job) = existing {
+                // A failed or cancelled job is reset to queued under the same id;
+                // partial files stay, so the run resumes instead of starting over.
+                if matches!(job.status, Status::Failed | Status::Cancelled) {
+                    job.status = Status::Queued;
+                    job.error = None;
+                    job.retryable = false;
+                    let id = job.id.clone();
+                    drop(inner);
+                    self.save()?;
+                    return Ok(id);
+                }
                 return Ok(job.id.clone());
             }
         }
@@ -597,6 +608,23 @@ mod tests {
         let forced = q.add_forced(spec()).unwrap();
         assert_ne!(forced, id);
         assert_eq!(q.get(&forced).unwrap().status, Status::Queued);
+    }
+
+    #[test]
+    fn failed_or_cancelled_job_is_requeued_under_same_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let q = queue(dir.path());
+        let id = q.add(spec()).unwrap();
+        {
+            let mut inner = q.inner.lock().unwrap();
+            inner.jobs[0].status = Status::Failed;
+            inner.jobs[0].error = Some("boom".into());
+        }
+        assert_eq!(q.add(spec()).unwrap(), id);
+        let job = q.get(&id).unwrap();
+        assert_eq!(job.status, Status::Queued);
+        assert!(job.error.is_none());
+        assert_eq!(q.list().len(), 1);
     }
 
     #[test]
