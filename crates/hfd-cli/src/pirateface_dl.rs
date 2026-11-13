@@ -12,15 +12,17 @@ pub async fn run(
     revision: Option<&str>,
     filenames: &[String],
     local_dir: Option<&Path>,
+    cache_root: &Path,
 ) -> Result<()> {
     let base = std::env::var("PF_API").unwrap_or_else(|_| pirateface::DEFAULT_API.to_string());
-    let paths = run_with(
+    let paths = run_with_cache(
         &base,
         PathBuf::from("aria2c"),
         repo_id,
         revision,
         filenames,
         local_dir,
+        Some(cache_root),
     )
     .await?;
     for path in paths {
@@ -31,6 +33,7 @@ pub async fn run(
 
 /// Runner with the API base and aria2c binary injected, so tests can point it at a
 /// local mock server and a stub binary.
+#[cfg(test)]
 pub async fn run_with(
     base: &str,
     aria2c: PathBuf,
@@ -39,9 +42,22 @@ pub async fn run_with(
     filenames: &[String],
     local_dir: Option<&Path>,
 ) -> Result<Vec<PathBuf>> {
-    let Some(dest) = local_dir else {
-        bail!("--source pirateface needs --local-dir; the HF cache layout is not supported yet");
-    };
+    run_with_cache(base, aria2c, repo_id, revision, filenames, local_dir, None).await
+}
+
+/// As `run_with`, plus an HF cache root used when no `local_dir` is given.
+pub async fn run_with_cache(
+    base: &str,
+    aria2c: PathBuf,
+    repo_id: &str,
+    revision: Option<&str>,
+    filenames: &[String],
+    local_dir: Option<&Path>,
+    cache_root: Option<&Path>,
+) -> Result<Vec<PathBuf>> {
+    if local_dir.is_none() && cache_root.is_none() {
+        bail!("--source pirateface needs --local-dir or an HF cache directory");
+    }
     let entry = match pirateface::lookup_at(base, repo_id)
         .await
         .context("Pirate Face lookup")?
@@ -63,7 +79,41 @@ pub async fn run_with(
         );
     }
     let backend = AriaTorrent { bin: aria2c };
-    pirateface::fetch_verified(&backend, &entry, filenames, dest).context("Pirate Face transfer")
+    // Without --local-dir, stage in the cache root, then place each verified file
+    // into the HF cache layout (blobs/, snapshots/, refs/).
+    let staging = match (local_dir, cache_root) {
+        (Some(dir), _) => dir.to_path_buf(),
+        (None, Some(root)) => root.join(".pf-staging").join(repo_id.replace('/', "--")),
+        (None, None) => unreachable!("checked above"),
+    };
+    let fetched = pirateface::fetch_verified(&backend, &entry, filenames, &staging)
+        .context("Pirate Face transfer")?;
+    let Some(root) = local_dir.is_none().then_some(cache_root).flatten() else {
+        return Ok(fetched);
+    };
+    let repo = hfd_core::hub::RepoRef::new(hfd_core::uri::RepoType::Model, repo_id);
+    let wanted_revision = revision.unwrap_or(&entry.revision);
+    let mut placed = Vec::new();
+    for file in entry
+        .files
+        .iter()
+        .filter(|f| fetched.iter().any(|p| p.ends_with(&f.path)))
+    {
+        let src = staging.join(&file.path);
+        let snap = hfd_core::cache::place_verified(
+            root,
+            &repo,
+            &entry.revision,
+            &file.path,
+            &file.sha256,
+            wanted_revision,
+            &src,
+        )
+        .context("placing file in HF cache")?;
+        placed.push(snap);
+    }
+    let _ = std::fs::remove_dir_all(&staging);
+    Ok(placed)
 }
 
 #[cfg(all(test, unix))]
@@ -222,5 +272,36 @@ mod tests {
             ))
             .unwrap_err();
         assert!(format!("{err:#}").contains("unavailable"));
+    }
+
+    #[test]
+    fn without_local_dir_places_file_in_hf_cache_layout() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = stub_aria2c(dir.path(), "abc");
+        let cache = dir.path().join("hub");
+        let base = mock_api(200, LISTED);
+        let paths = rt()
+            .block_on(run_with_cache(
+                &base,
+                bin,
+                "acme/tiny",
+                None,
+                &[],
+                None,
+                Some(&cache),
+            ))
+            .unwrap();
+        let repo = cache.join("models--acme--tiny");
+        assert_eq!(paths, vec![repo.join("snapshots/rev1/model.gguf")],);
+        assert_eq!(std::fs::read(&paths[0]).unwrap(), b"abc");
+        assert_eq!(
+            std::fs::read_to_string(repo.join("refs/rev1")).unwrap(),
+            "rev1"
+        );
+        assert!(
+            repo.join("blobs/ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+                .exists()
+        );
+        assert!(!cache.join(".pf-staging").join("acme--tiny").exists());
     }
 }

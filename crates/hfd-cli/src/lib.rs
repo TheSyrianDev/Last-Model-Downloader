@@ -470,6 +470,7 @@ async fn run_download(args: DownloadArgs) -> Result<()> {
             args.revision.as_deref(),
             &args.filenames,
             args.local_dir.as_deref(),
+            &Config::from_env().cache_dir,
         )
         .await;
     }
