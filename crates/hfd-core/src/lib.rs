@@ -8,6 +8,7 @@ pub mod error;
 pub mod hub;
 pub mod progress;
 pub mod quant;
+pub mod queue;
 pub mod record;
 pub mod state;
 pub mod uri;
