@@ -144,6 +144,62 @@ pub fn fetch_verified(
     Ok(paths)
 }
 
+/// Torrent backend that shells out to a user-installed `aria2c`. Optional:
+/// when the binary is missing the fetch reports unavailable, so the caller can
+/// fall back to Hugging Face. Nothing is bundled and nothing is seeded.
+pub struct AriaTorrent {
+    pub bin: PathBuf,
+}
+
+impl Default for AriaTorrent {
+    fn default() -> Self {
+        Self {
+            bin: PathBuf::from("aria2c"),
+        }
+    }
+}
+
+/// Builds the aria2c argument list. Pure, so it can be unit-tested. Seeding is
+/// switched off (no seed time, upload capped) and the torrent is fetched into `dest`.
+pub fn aria_args(torrent_url: &str, dest: &Path) -> Vec<String> {
+    vec![
+        "--dir".into(),
+        dest.display().to_string(),
+        "--seed-time=0".into(),
+        "--max-upload-limit=1K".into(),
+        "--bt-enable-lpd=false".into(),
+        "--allow-overwrite=true".into(),
+        "--console-log-level=warn".into(),
+        "--summary-interval=0".into(),
+        torrent_url.into(),
+    ]
+}
+
+impl TorrentBackend for AriaTorrent {
+    fn fetch(&self, entry: &Entry, files: &[&FileEntry], dest: &Path) -> Result<Vec<PathBuf>> {
+        let torrent = entry
+            .torrent
+            .as_deref()
+            .ok_or_else(|| Error::Invalid("entry has no torrent to fetch".into()))?;
+        let status = match std::process::Command::new(&self.bin)
+            .args(aria_args(torrent, dest))
+            .status()
+        {
+            Ok(s) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(Error::Invalid(
+                    "Pirate Face transfer unavailable: aria2c not installed".into(),
+                ));
+            }
+            Err(e) => return Err(e.into()),
+        };
+        if !status.success() {
+            return Err(Error::Invalid(format!("aria2c exited with {status}")));
+        }
+        Ok(files.iter().map(|f| dest.join(&f.path)).collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,5 +273,71 @@ mod tests {
         ]);
         let paths = fetch_verified(&ok, &e, &[], dir2.path()).unwrap();
         assert_eq!(paths.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod aria_tests {
+    use super::*;
+
+    fn entry() -> Entry {
+        Entry {
+            repo_id: "a/b".into(),
+            revision: "main".into(),
+            hf: true,
+            files: vec![],
+            torrent: Some("https://pirateface.co/t/a.torrent".into()),
+        }
+    }
+
+    #[test]
+    fn args_disable_seeding_and_fetch_into_dest() {
+        let a = aria_args("https://x/t.torrent", Path::new("/d"));
+        assert!(a.contains(&"--seed-time=0".to_string()));
+        assert!(a.contains(&"--dir".to_string()) && a.contains(&"/d".to_string()));
+        assert_eq!(a.last().unwrap(), "https://x/t.torrent");
+    }
+
+    #[test]
+    fn missing_binary_reports_unavailable() {
+        let b = AriaTorrent {
+            bin: "/nonexistent/aria2c-stub".into(),
+        };
+        let err = b.fetch(&entry(), &[], Path::new("/tmp")).unwrap_err();
+        assert!(err.to_string().contains("unavailable"));
+    }
+
+    #[test]
+    fn stub_success_returns_expected_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = dir.path().join("aria2c");
+        std::fs::write(&stub, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let f = FileEntry {
+            path: "m.gguf".into(),
+            size: 3,
+            sha256: String::new(),
+        };
+        let b = AriaTorrent { bin: stub };
+        let got = b.fetch(&entry(), &[&f], dir.path()).unwrap();
+        assert_eq!(got, vec![dir.path().join("m.gguf")]);
+    }
+
+    #[test]
+    fn stub_failure_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let stub = dir.path().join("aria2c");
+        std::fs::write(&stub, "#!/bin/sh\nexit 3\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let b = AriaTorrent { bin: stub };
+        assert!(b.fetch(&entry(), &[], dir.path()).is_err());
     }
 }
