@@ -1,0 +1,221 @@
+//! Optional Pirate Face source. Metadata lookup, file selection and sha256
+//! checks live here. Byte transfer sits behind [`TorrentBackend`]; the default
+//! [`NoTorrent`] reports `Unavailable`, so nothing is fetched until a backend is
+//! supplied. See docs/pirateface-plan.md.
+
+use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+
+use crate::error::{Error, Result};
+
+pub const DEFAULT_API: &str = "https://pirateface.co";
+
+/// Where the bytes come from. Chosen explicitly; there is no silent fallback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Source {
+    #[default]
+    HuggingFace,
+    PirateFace,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Entry {
+    pub repo_id: String,
+    pub revision: String,
+    /// False when the entry was published without an HF commit ("pf_only").
+    #[serde(default = "default_true")]
+    pub hf: bool,
+    pub files: Vec<FileEntry>,
+    #[serde(default)]
+    pub torrent: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct FileEntry {
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Parse a `GET /api/torrents?repo=` body. Returns `Ok(None)` for "not listed".
+pub fn parse_entry(json: &str) -> Result<Option<Entry>> {
+    let entry: Entry = serde_json::from_str(json)?;
+    if entry.files.is_empty() {
+        return Err(Error::Invalid("Pirate Face entry lists no files".into()));
+    }
+    for f in &entry.files {
+        if f.sha256.len() != 64 || !f.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(Error::Invalid(format!(
+                "Pirate Face entry has a bad sha256 for {}",
+                f.path
+            )));
+        }
+        if f.path.starts_with('/') || f.path.split('/').any(|p| p == "..") {
+            return Err(Error::Invalid(format!("unsafe path in entry: {}", f.path)));
+        }
+    }
+    Ok(Some(entry))
+}
+
+/// Keep only the files whose path matches one of `wanted` (exact path or prefix ending in '/').
+/// Empty `wanted` keeps everything.
+pub fn select_files<'a>(entry: &'a Entry, wanted: &[String]) -> Vec<&'a FileEntry> {
+    entry
+        .files
+        .iter()
+        .filter(|f| {
+            wanted.is_empty()
+                || wanted
+                    .iter()
+                    .any(|w| f.path == *w || (w.ends_with('/') && f.path.starts_with(w.as_str())))
+        })
+        .collect()
+}
+
+/// Lowercase hex sha256 of a file.
+pub fn sha256_file(path: &Path) -> Result<String> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)?;
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// Check a downloaded file against the entry. On mismatch the file is deleted
+/// and an error is returned, so a bad copy is never kept.
+pub fn verify_file(path: &Path, expected: &FileEntry) -> Result<()> {
+    let actual = sha256_file(path)?;
+    if actual.eq_ignore_ascii_case(&expected.sha256) {
+        Ok(())
+    } else {
+        let _ = std::fs::remove_file(path);
+        Err(Error::Invalid(format!(
+            "sha256 mismatch for {}: expected {}, got {actual}; file removed",
+            expected.path, expected.sha256
+        )))
+    }
+}
+
+/// Byte transfer for a Pirate Face entry. Implementations write each selected
+/// file under `dest` and return the paths. Verification is done by the caller.
+pub trait TorrentBackend {
+    fn fetch(&self, entry: &Entry, files: &[&FileEntry], dest: &Path) -> Result<Vec<PathBuf>>;
+}
+
+/// Default backend: no torrent engine is bundled, so every fetch is unavailable.
+pub struct NoTorrent;
+
+impl TorrentBackend for NoTorrent {
+    fn fetch(&self, _: &Entry, _: &[&FileEntry], _: &Path) -> Result<Vec<PathBuf>> {
+        Err(Error::Invalid(
+            "Pirate Face transfer unavailable: no torrent engine configured".into(),
+        ))
+    }
+}
+
+/// Fetch, then verify every selected file. Returns the verified paths.
+pub fn fetch_verified(
+    backend: &dyn TorrentBackend,
+    entry: &Entry,
+    wanted: &[String],
+    dest: &Path,
+) -> Result<Vec<PathBuf>> {
+    let files = select_files(entry, wanted);
+    if files.is_empty() {
+        return Err(Error::Invalid("no files matched the request".into()));
+    }
+    let paths = backend.fetch(entry, &files, dest)?;
+    for file in &files {
+        let local = dest.join(&file.path);
+        if !paths.contains(&local) {
+            return Err(Error::Invalid(format!(
+                "backend did not return {}",
+                file.path
+            )));
+        }
+        verify_file(&local, file)?;
+    }
+    Ok(paths)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const OK: &str = r#"{"repoId":"a/b","revision":"abc","hf":true,
+        "files":[{"path":"m.gguf","size":3,"sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
+                 {"path":"sub/x.json","size":0,"sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}]}"#;
+
+    #[test]
+    fn parses_listed_entry() {
+        let e = parse_entry(OK).unwrap().unwrap();
+        assert!(e.hf);
+        assert_eq!(e.files.len(), 2);
+    }
+
+    #[test]
+    fn rejects_bad_hash_and_unsafe_paths() {
+        let bad = OK.replace("ba7816bf", "zz7816bf");
+        assert!(parse_entry(&bad).is_err());
+        let evil = OK.replace("\"m.gguf\"", "\"../m.gguf\"");
+        assert!(parse_entry(&evil).is_err());
+        assert!(parse_entry("{not json").is_err());
+    }
+
+    #[test]
+    fn selects_by_exact_path_or_directory_prefix() {
+        let e = parse_entry(OK).unwrap().unwrap();
+        assert_eq!(select_files(&e, &[]).len(), 2);
+        assert_eq!(select_files(&e, &["m.gguf".into()]).len(), 1);
+        assert_eq!(select_files(&e, &["sub/".into()])[0].path, "sub/x.json");
+        assert!(select_files(&e, &["m".into()]).is_empty());
+    }
+
+    #[test]
+    fn default_backend_is_unavailable() {
+        let e = parse_entry(OK).unwrap().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        assert!(fetch_verified(&NoTorrent, &e, &[], dir.path()).is_err());
+    }
+
+    struct Fake(Vec<(String, Vec<u8>)>);
+    impl TorrentBackend for Fake {
+        fn fetch(&self, _: &Entry, _: &[&FileEntry], dest: &Path) -> Result<Vec<PathBuf>> {
+            let mut out = Vec::new();
+            for (p, bytes) in &self.0 {
+                let local = dest.join(p);
+                std::fs::create_dir_all(local.parent().unwrap())?;
+                std::fs::write(&local, bytes)?;
+                out.push(local);
+            }
+            Ok(out)
+        }
+    }
+
+    #[test]
+    fn verified_fetch_keeps_good_files_and_removes_bad_ones() {
+        let e = parse_entry(OK).unwrap().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        // m.gguf content "abc" matches the fixture hash; the json file does not.
+        let good = Fake(vec![
+            ("m.gguf".into(), b"abc".to_vec()),
+            ("sub/x.json".into(), b"oops".to_vec()),
+        ]);
+        assert!(fetch_verified(&good, &e, &[], dir.path()).is_err());
+        assert!(!dir.path().join("sub/x.json").exists());
+
+        let dir2 = tempfile::tempdir().unwrap();
+        let ok = Fake(vec![
+            ("m.gguf".into(), b"abc".to_vec()),
+            ("sub/x.json".into(), b"".to_vec()),
+        ]);
+        let paths = fetch_verified(&ok, &e, &[], dir2.path()).unwrap();
+        assert_eq!(paths.len(), 2);
+    }
+}
