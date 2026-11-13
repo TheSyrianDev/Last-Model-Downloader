@@ -209,7 +209,13 @@ impl Queue {
             });
             id
         };
-        self.save()?;
+        if let Err(error) = self.save() {
+            // Undo the in-memory insert so a failed add is not run later and a
+            // retry does not enqueue the same work twice.
+            let mut inner = self.inner.lock().unwrap();
+            inner.jobs.retain(|j| j.id != id);
+            return Err(error);
+        }
         let _ = self.events.send(QueueEvent::Queued { id: id.clone() });
         self.wake.notify_one();
         Ok(id)
@@ -428,10 +434,16 @@ impl Queue {
             fs::create_dir_all(parent)?;
         }
         let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
-        fs::write(
-            &tmp,
-            serde_json::to_vec_pretty(&persisted).map_err(|e| Error::Invalid(e.to_string()))?,
-        )?;
+        let bytes =
+            serde_json::to_vec_pretty(&persisted).map_err(|e| Error::Invalid(e.to_string()))?;
+        {
+            // Flush the data before the rename, so a crash cannot leave the
+            // renamed file empty or truncated.
+            use std::io::Write;
+            let mut file = fs::File::create(&tmp)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+        }
         fs::rename(&tmp, &path)?;
         Ok(())
     }
@@ -519,6 +531,23 @@ mod tests {
         let job = q.get("job-1").unwrap();
         assert_eq!(job.status, Status::Queued);
         assert_eq!(q.add(spec()).unwrap(), "job-2");
+    }
+
+    #[test]
+    fn failed_add_does_not_leave_a_phantom_job() {
+        let dir = tempfile::tempdir().unwrap();
+        let q = queue(dir.path());
+        // Replace the state directory with a file so the next save() fails.
+        let state_dir = dir.path();
+        fs::remove_file(state_dir.join("queue.json")).ok();
+        let blocked = dir.path().join("blocked");
+        fs::write(&blocked, b"x").unwrap();
+        q.inner.lock().unwrap().path = blocked.join("queue.json");
+        assert!(q.add(spec()).is_err());
+        assert!(
+            q.list().is_empty(),
+            "failed add must not leave a queued job"
+        );
     }
 
     #[test]
