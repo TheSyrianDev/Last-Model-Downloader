@@ -767,6 +767,30 @@ impl Downloader {
             .sha256
             .clone()
             .or_else(|| resolved.etag.clone().filter(|etag| is_sha256(etag)));
+        if expected.is_none() && self.options.verify == VerifyMode::Always {
+            // Small git-tracked files have no sha256, but their ETag is the git blob sha1.
+            if let Some(blob) = resolved.etag.clone().filter(|etag| is_git_sha1(etag)) {
+                sink(Event::message(format!(
+                    "verifying git blob sha1 for {}",
+                    target.reported_path().display()
+                )));
+                let partial_path = target.partial_path().to_path_buf();
+                let size = resolved.size;
+                let actual = tokio::task::spawn_blocking(move || git_blob_sha1(&partial_path, size))
+                    .await
+                    .map_err(|error| Error::Invalid(format!("checksum task failed: {error}")))??;
+                if !actual.eq_ignore_ascii_case(&blob) {
+                    let _ = remove_file_if_exists(target.partial_path());
+                    let _ = remove_file_if_exists(target.state_path());
+                    return Err(Error::Checksum {
+                        path: target.reported_path().display().to_string(),
+                        expected: blob,
+                        actual,
+                    });
+                }
+                return Ok(());
+            }
+        }
         let Some(expected) = expected else {
             if self.options.verify == VerifyMode::Always {
                 return Err(Error::Invalid(format!(
@@ -1530,6 +1554,27 @@ fn truncate_body(mut body: String) -> String {
     body
 }
 
+fn is_git_sha1(value: &str) -> bool {
+    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Git blob hash: sha1 over "blob <size>\0" followed by the file bytes.
+fn git_blob_sha1(path: &Path, size: u64) -> Result<String> {
+    use sha1::{Digest, Sha1};
+    let mut file = fs::File::open(path)?;
+    let mut hasher = Sha1::new();
+    hasher.update(format!("blob {size}\0").as_bytes());
+    let mut buffer = vec![0u8; 1024 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
 fn hash_file(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
@@ -1564,6 +1609,20 @@ fn xet_recently_failed(marker: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn git_blob_sha1_matches_git_hash_object() {
+        // `printf 'hello\n' | git hash-object --stdin` = ce013625030ba8dba906f756967f9e9ca394464a
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hello.txt");
+        std::fs::write(&path, b"hello\n").unwrap();
+        assert_eq!(
+            git_blob_sha1(&path, 6).unwrap(),
+            "ce013625030ba8dba906f756967f9e9ca394464a"
+        );
+        assert!(is_git_sha1("ce013625030ba8dba906f756967f9e9ca394464a"));
+        assert!(!is_git_sha1("ce0136"));
+    }
     use super::*;
 
     #[test]
