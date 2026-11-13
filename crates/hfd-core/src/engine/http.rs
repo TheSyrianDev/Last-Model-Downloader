@@ -771,9 +771,12 @@ impl Downloader {
                 )));
                 let partial_path = target.partial_path().to_path_buf();
                 let size = resolved.size;
-                let actual = tokio::task::spawn_blocking(move || git_blob_sha1(&partial_path, size))
-                    .await
-                    .map_err(|error| Error::Invalid(format!("checksum task failed: {error}")))??;
+                let actual =
+                    tokio::task::spawn_blocking(move || git_blob_sha1(&partial_path, size))
+                        .await
+                        .map_err(|error| {
+                            Error::Invalid(format!("checksum task failed: {error}"))
+                        })??;
                 if !actual.eq_ignore_ascii_case(&blob) {
                     let _ = remove_file_if_exists(target.partial_path());
                     let _ = remove_file_if_exists(target.state_path());

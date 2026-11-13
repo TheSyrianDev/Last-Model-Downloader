@@ -93,14 +93,18 @@ pub fn recommend(probe_json: &str, registry_json: &str) -> Result<Recommendation
         .ok_or_else(|| Error::Invalid("models.json has no tiers array".into()))?;
 
     let named = probe["tier"]["tier"].as_str();
-    let wanted = named.map(str::to_string).unwrap_or_else(|| tier_from_hardware(&probe).to_string());
+    let wanted = named
+        .map(str::to_string)
+        .unwrap_or_else(|| tier_from_hardware(&probe).to_string());
     let tier = tiers
         .iter()
         .find(|t| t["tier"].as_str() == Some(wanted.as_str()))
         .or_else(|| {
             // Probe tier names can carry a suffix, e.g. "GPU 4 GB (ours, ...)".
             tiers.iter().find(|t| {
-                t["tier"].as_str().is_some_and(|n| n.starts_with(tier_from_hardware(&probe)))
+                t["tier"]
+                    .as_str()
+                    .is_some_and(|n| n.starts_with(tier_from_hardware(&probe)))
             })
         })
         .ok_or_else(|| Error::Invalid(format!("no registry tier matches '{wanted}'")))?;
@@ -147,7 +151,8 @@ mod tests {
 
     #[test]
     fn no_size_means_no_fit_claim() {
-        let probe = r#"{"ram":{"ram_total_mib":23750,"ram_free_mib":11692},"gpu":{"vram_mib":4096}}"#;
+        let probe =
+            r#"{"ram":{"ram_total_mib":23750,"ram_free_mib":11692},"gpu":{"vram_mib":4096}}"#;
         let r = recommend(probe, REGISTRY).unwrap();
         assert_eq!(r.chat.unwrap().fits, None);
     }
