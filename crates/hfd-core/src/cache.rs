@@ -553,3 +553,91 @@ mod tests {
         assert!(!layout.is_complete(5, true));
     }
 }
+
+/// Place a file that has already been sha256-verified into the HF cache layout:
+/// `blobs/<sha256>`, `snapshots/<commit>/<path>` pointing at it, and
+/// `refs/<revision>` holding the commit when `revision` is a branch or tag.
+/// Symlinks are used on unix; elsewhere the blob is copied, as `hf` does.
+pub fn place_verified(
+    cache_dir: &Path,
+    repo: &RepoRef,
+    commit: &str,
+    path: &str,
+    sha256: &str,
+    revision: &str,
+    verified_file: &Path,
+) -> Result<PathBuf> {
+    validate_repo_path(path)?;
+    if !is_sha256(sha256) {
+        return Err(Error::Invalid(format!("bad sha256 for {path}")));
+    }
+    let repo_dir = cache_dir.join(repo_folder_name(repo));
+    let blob = repo_dir.join("blobs").join(sha256);
+    fs::create_dir_all(repo_dir.join("blobs"))?;
+    if !blob.exists() {
+        fs::rename(verified_file, &blob).or_else(|_| fs::copy(verified_file, &blob).map(|_| ()))?;
+    }
+    let snapshot = repo_dir.join("snapshots").join(commit).join(path);
+    if let Some(parent) = snapshot.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let _ = fs::remove_file(&snapshot);
+    #[cfg(unix)]
+    {
+        // snapshots/<commit>/<dirs of path> sits (2 + dirs) levels below the repo root.
+        let depth = 2 + Path::new(path)
+            .parent()
+            .map_or(0, |p| p.components().count());
+        let mut target = PathBuf::new();
+        for _ in 0..depth {
+            target.push("..");
+        }
+        target.push("blobs");
+        target.push(sha256);
+        std::os::unix::fs::symlink(target, &snapshot)?;
+    }
+    #[cfg(not(unix))]
+    {
+        fs::copy(&blob, &snapshot)?;
+    }
+    if !is_commit_hash(revision) {
+        let refs = repo_dir.join("refs");
+        fs::create_dir_all(&refs)?;
+        fs::write(refs.join(revision), commit)?;
+    }
+    Ok(snapshot)
+}
+
+#[cfg(test)]
+mod pf_cache_tests {
+    use super::*;
+    use crate::uri::RepoType;
+
+    const SHA: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    #[test]
+    fn places_blob_snapshot_and_ref() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("download.tmp");
+        fs::write(&src, b"abc").unwrap();
+        let repo = RepoRef::new(RepoType::Model, "acme/tiny");
+        let snap =
+            place_verified(dir.path(), &repo, COMMIT, "sub/m.gguf", SHA, "main", &src).unwrap();
+        let root = dir.path().join("models--acme--tiny");
+        assert_eq!(snap, root.join("snapshots").join(COMMIT).join("sub/m.gguf"));
+        assert_eq!(fs::read(&snap).unwrap(), b"abc");
+        assert_eq!(fs::read_to_string(root.join("refs/main")).unwrap(), COMMIT);
+        assert!(root.join("blobs").join(SHA).exists());
+    }
+
+    #[test]
+    fn rejects_traversal_and_bad_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("x");
+        fs::write(&src, b"abc").unwrap();
+        let repo = RepoRef::new(RepoType::Model, "acme/tiny");
+        assert!(place_verified(dir.path(), &repo, COMMIT, "../evil", SHA, "main", &src).is_err());
+        assert!(place_verified(dir.path(), &repo, COMMIT, "m.gguf", "zz", "main", &src).is_err());
+    }
+}
