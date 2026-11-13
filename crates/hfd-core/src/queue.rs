@@ -26,35 +26,54 @@ use crate::{CancelToken, Config, Error, HubClient, RepoRef, RepoType, Result};
 /// What to download. `paths` are repo-relative files at `revision`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobSpec {
+    /// Kind of repository (model, dataset or space).
     pub repo_type: RepoType,
+    /// Hub repository id, such as `org/name`.
     pub repo_id: String,
+    /// Git revision to fetch: a branch, tag or commit.
     pub revision: String,
+    /// Repo-relative file paths to download. Must not be empty; [`Queue::add`] rejects an empty list.
     pub paths: Vec<String>,
     /// Real folder for the files. Required for `delete_partial` on cancel.
     #[serde(default)]
+    /// Real folder for the files. Required for `delete_partial` on cancel.
     pub local_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// Lifecycle state of a job. `Done`, `Failed` and `Cancelled` are terminal until the job is re-added.
 pub enum Status {
+    /// Waiting for a worker slot.
     Queued,
+    /// Currently downloading.
     Running,
+    /// Stopped by [`Queue::pause`]; resumes from its partial files.
     Paused,
+    /// Stopped by [`Queue::cancel`]. Partial files stay unless `delete_partial` was set.
     Cancelled,
+    /// Every file was fetched and passed verification.
     Done,
+    /// Stopped with an error. See [`Job::error`] and [`Job::retryable`].
     Failed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// A queued download and its current state. Persisted in the queue state file.
 pub struct Job {
+    /// Stable identifier, `job-N`, assigned by [`Queue::add`].
     pub id: String,
+    /// What to download.
     pub spec: JobSpec,
+    /// Current lifecycle state.
     pub status: Status,
+    /// Unix timestamp in seconds when the job was added.
     pub created_at: u64,
     #[serde(default)]
+    /// Reason for the last failure, if any.
     pub error: Option<String>,
     #[serde(default)]
+    /// True when the failure looks transient (network, timeout), so a re-add may succeed.
     pub retryable: bool,
 }
 
@@ -62,34 +81,57 @@ pub struct Job {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum QueueEvent {
+    /// A job was accepted into the queue.
     Queued {
+        /// Job id.
         id: String,
     },
+    /// A worker began downloading the job.
     Started {
+        /// Job id.
         id: String,
     },
+    /// Per-file progress. `bytes_per_sec` is a rolling rate; `eta_secs` is `None` when unknown.
     Progress {
+        /// Job id.
         id: String,
+        /// Repo-relative file being fetched.
         path: String,
+        /// Bytes received so far for this file.
         bytes: u64,
+        /// Expected size in bytes.
         total: u64,
+        /// Rolling transfer rate.
         bytes_per_sec: f64,
+        /// Estimated seconds remaining, or `None` when unknown.
         eta_secs: Option<u64>,
     },
+    /// A job was paused.
     Paused {
+        /// Job id.
         id: String,
     },
+    /// A job was cancelled. `deleted_partial` is true when partial files were removed.
     Cancelled {
+        /// Job id.
         id: String,
+        /// Whether partial files were removed.
         deleted_partial: bool,
     },
+    /// A job finished. `sha_ok` is true when every file passed checksum verification.
     Finished {
+        /// Job id.
         id: String,
+        /// Whether every file passed checksum verification.
         sha_ok: bool,
     },
+    /// A job failed. `retryable` mirrors [`Job::retryable`].
     Failed {
+        /// Job id.
         id: String,
+        /// Human-readable reason.
         reason: String,
+        /// Whether a re-add may succeed.
         retryable: bool,
     },
 }
@@ -178,14 +220,17 @@ impl Queue {
         self.wake.notify_one();
     }
 
+    /// Receive a stream of [`QueueEvent`]s. Only events sent after this call are seen.
     pub fn subscribe(&self) -> broadcast::Receiver<QueueEvent> {
         self.events.subscribe()
     }
 
+    /// Snapshot of every job, in insertion order.
     pub fn list(&self) -> Vec<Job> {
         self.inner.lock().unwrap().jobs.clone()
     }
 
+    /// Snapshot of one job by id, or `None` if it does not exist.
     pub fn get(&self, id: &str) -> Option<Job> {
         self.list().into_iter().find(|j| j.id == id)
     }
