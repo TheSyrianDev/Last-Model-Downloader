@@ -100,6 +100,15 @@ for path in &pick.files {
 }
 ```
 
+## Installed models (`record`)
+
+The download log (`downloads.json`, set with `download_log`) is also the list of installed models:
+
+- `record::list_installed(&log_path) -> Vec<InstalledModel>` returns every entry (repo, file, quant, size_bytes, sha256, path, revision, downloaded_at). A missing or unreadable log gives an empty list.
+- `record::remove_installed(&log_path, &model_path, delete_file)` removes the entry for that absolute path and, when `delete_file` is true, deletes the file too. Returns `Ok(true)` if an entry was removed. The log is rewritten atomically.
+
+Use `remove_installed` for "delete model" so the registry and the disk stay in step.
+
 ## Platforms
 
 CI builds and tests on Linux, macOS and Windows. Real downloads have only been tested on Linux. On Windows, the cache uses hard links or copies when symlinks aren't allowed. The CLI's background daemon is Unix-only and is not part of the library.
