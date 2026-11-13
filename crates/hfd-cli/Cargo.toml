@@ -13,6 +13,7 @@ clap.workspace = true
 fs2.workspace = true
 globset.workspace = true
 hfd-core = { path = "../hfd-core" }
+sha2.workspace = true
 indicatif.workspace = true
 serde.workspace = true
 serde_json.workspace = true

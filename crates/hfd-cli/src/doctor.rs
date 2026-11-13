@@ -24,7 +24,10 @@ pub struct DoctorArgs {
 
 pub async fn run(args: DoctorArgs) -> Result<bool> {
     let config = Config::from_env();
-    let target = args.target.clone().unwrap_or_else(|| config.cache_dir.clone());
+    let target = args
+        .target
+        .clone()
+        .unwrap_or_else(|| config.cache_dir.clone());
     let report = build_report(&config, &target, args.need).await;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -76,7 +79,10 @@ async fn check_network(config: &Config) -> Value {
             return json!({ "reachable": false, "error": error.to_string() });
         }
     };
-    let url = format!("{}/api/models?limit=1", config.endpoint.trim_end_matches('/'));
+    let url = format!(
+        "{}/api/models?limit=1",
+        config.endpoint.trim_end_matches('/')
+    );
     let started = Instant::now();
     let result = hub
         .http_client()
@@ -107,7 +113,7 @@ fn check_disk(target: &Path, need: Option<u64>) -> Value {
             "path": target.display().to_string(),
             "free_bytes": free,
             "need_bytes": need,
-            "enough": need.map_or(true, |need| free >= need),
+            "enough": need.is_none_or(|need| free >= need),
         }),
         Err(error) => json!({
             "path": target.display().to_string(),
@@ -123,15 +129,49 @@ fn print_text(report: &Value) {
     if net["reachable"].as_bool().unwrap_or(false) {
         println!("network:  ok ({} ms)", net["latency_ms"]);
     } else {
-        println!("network:  FAILED {}", net.get("error").or(net.get("status")).unwrap_or(&Value::Null));
+        println!(
+            "network:  FAILED {}",
+            net.get("error")
+                .or(net.get("status"))
+                .unwrap_or(&Value::Null)
+        );
     }
-    println!("token:    {}", if report["auth"]["token_present"].as_bool().unwrap_or(false) { "present" } else { "none (public repos only)" });
-    println!("xet:      {}", if report["xet"]["failed_recently"].as_bool().unwrap_or(false) { "failed in the last 24h, using HTTP" } else { "no recent failure" });
+    println!(
+        "token:    {}",
+        if report["auth"]["token_present"].as_bool().unwrap_or(false) {
+            "present"
+        } else {
+            "none (public repos only)"
+        }
+    );
+    println!(
+        "xet:      {}",
+        if report["xet"]["failed_recently"].as_bool().unwrap_or(false) {
+            "failed in the last 24h, using HTTP"
+        } else {
+            "no recent failure"
+        }
+    );
     let disk = &report["disk"];
-    println!("disk:     {} bytes free at {}", disk["free_bytes"], disk["path"].as_str().unwrap_or("?"));
-    println!("recommended: --engine {} --connections {} --verify auto", report["recommended"]["engine"].as_str().unwrap_or("http"), report["recommended"]["connections"]);
+    println!(
+        "disk:     {} bytes free at {}",
+        disk["free_bytes"],
+        disk["path"].as_str().unwrap_or("?")
+    );
+    println!(
+        "recommended: --engine {} --connections {} --verify auto",
+        report["recommended"]["engine"].as_str().unwrap_or("http"),
+        report["recommended"]["connections"]
+    );
     for problem in report["problems"].as_array().into_iter().flatten() {
         println!("problem:  {}", problem.as_str().unwrap_or(""));
     }
-    println!("{}", if report["ok"].as_bool().unwrap_or(false) { "ok" } else { "not ready" });
+    println!(
+        "{}",
+        if report["ok"].as_bool().unwrap_or(false) {
+            "ok"
+        } else {
+            "not ready"
+        }
+    );
 }
