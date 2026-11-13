@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0-rc.1 (unreleased)
+
+### Added
+- `hfd download --source pirateface`: opt-in transfer through Pirate Face via `aria2c` (seeding off), every file verified by sha256. Needs `--local-dir`. Never falls back to Hugging Face. Default `--source hf` unchanged.
+- `hfd doctor` reports whether `aria2c` is installed (informational).
+- `hfd-core` `recommend()`: picks chat/image/video models for the probe's hardware tier and reports whether each fits free RAM.
+- Queue: idempotent `add` (same repo, revision, files and local_dir return the existing id), `add_forced` for finished jobs, and failed or cancelled jobs requeue under the same id.
+
+### Fixed
+- Queue state is fsynced before rename; a failed add no longer leaves a phantom job.
+
 ## 0.3.0
 
 ### Added
