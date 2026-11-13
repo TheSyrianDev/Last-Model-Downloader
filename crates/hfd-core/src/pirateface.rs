@@ -415,3 +415,24 @@ mod lookup_tests {
         assert!(interpret_lookup(200, BAD_SHA).is_err());
     }
 }
+
+/// Look up a repo on Pirate Face over HTTP. `Ok(None)` means not listed.
+/// `PF_API` overrides the base URL; a missing variable uses `DEFAULT_API`.
+pub async fn lookup(repo_id: &str) -> Result<Option<Entry>> {
+    let base = std::env::var("PF_API").unwrap_or_else(|_| DEFAULT_API.to_string());
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| Error::Invalid(format!("Pirate Face client: {e}")))?;
+    let response = client
+        .get(lookup_url(&base, repo_id))
+        .send()
+        .await
+        .map_err(|e| Error::Invalid(format!("Pirate Face unreachable: {e}")))?;
+    let status = response.status().as_u16();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| Error::Invalid(format!("Pirate Face body: {e}")))?;
+    interpret_lookup(status, &body)
+}

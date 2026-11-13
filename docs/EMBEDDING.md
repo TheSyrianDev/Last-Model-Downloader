@@ -188,3 +188,17 @@ that job's id and creates nothing.
   (both `add` and `add_forced`). Partial files are kept, so the run resumes.
 - Queued, running and paused matches return the existing id unchanged.
 - A different `local_dir` or file set is a separate job.
+
+## Pirate Face source (opt-in)
+
+`hfd download <repo> --source pirateface --local-dir <dir> [files...]`
+
+- Looks the repo up at `PF_API` (default `https://pirateface.co`), then transfers
+  through `aria2c`. Seeding is disabled. Every file is checked against the sha256
+  in the entry.
+- Needs `aria2c` on PATH. Without it the command fails with "transfer unavailable";
+  `hfd doctor` reports whether it is installed.
+- `--source hf` (the default) never contacts Pirate Face.
+- Refused, with no fallback to Hugging Face: repos not listed, Pirate Face-only
+  entries (no HF commit), and a `--revision` that differs from the entry.
+- Not yet supported: the HF cache layout (`--local-dir` required).

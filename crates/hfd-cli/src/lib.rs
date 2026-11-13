@@ -1,6 +1,7 @@
 #[cfg(unix)]
 mod doctor;
 mod lastengine;
+mod pirateface_dl;
 #[cfg(unix)]
 mod queue;
 #[cfg(not(unix))]
@@ -154,6 +155,11 @@ struct DownloadArgs {
     #[arg(long)]
     revision: Option<String>,
 
+    /// Where bytes come from. `pirateface` is opt-in, needs `aria2c`, and requires
+    /// --local-dir. There is no fallback to Hugging Face.
+    #[arg(long, value_enum, default_value = "hf")]
+    source: SourceArg,
+
     /// Include files matching this glob (repeatable).
     #[arg(long = "include", value_name = "GLOB")]
     include: Vec<String>,
@@ -256,6 +262,12 @@ impl From<RepoTypeArg> for RepoType {
             RepoTypeArg::Space => RepoType::Space,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum SourceArg {
+    Hf,
+    Pirateface,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -452,6 +464,15 @@ async fn run_whoami() -> Result<()> {
 }
 
 async fn run_download(args: DownloadArgs) -> Result<()> {
+    if args.source == SourceArg::Pirateface {
+        return pirateface_dl::run(
+            &args.repo_id,
+            args.revision.as_deref(),
+            &args.filenames,
+            args.local_dir.as_deref(),
+        )
+        .await;
+    }
     let mode = output_mode(&args);
     let printer = Arc::new(Printer::new(mode));
 
