@@ -166,7 +166,7 @@ CI builds and tests on Linux, macOS and Windows. Real downloads have only been t
 ## Onboarding recommendation: `recommend`
 
 `hfd_core::recommend::recommend(probe_json, registry_json)` takes the output of
-`hw-probe` and `~/AI/Rig/registry/models.json` and returns the chat, image and
+`hw-probe` and a models JSON file (for example one from your local model registry) and returns the chat, image and
 video picks for this machine's tier, with a fit verdict where the registry gives
 a size.
 
