@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+- `hfd doctor`: checks network, token, Xet state and free disk, then recommends settings. `--json` for scripts. Exits 2 on a problem.
+- `hfd lastengine`: downloads the Last Engine release asset and checks it against `SHA256SUMS.txt`. Discards the file on mismatch. Currently always fetches the CUDA variant (hw-probe tier selection not wired yet).
+- Installed-model helpers in the core library: `record::list_installed` and `record::remove_installed` (see `docs/EMBEDDING.md`).
+
+### Fixed
+- `--verify always` on small git-stored files: checks the git blob SHA-1 from the ETag instead of failing with "no SHA256 checksum".
+- Redirects from renamed repos are followed.
+- `--flat` with `--local-dir` writes each file by basename.
+
 ## Unreleased
 
 ### Added
