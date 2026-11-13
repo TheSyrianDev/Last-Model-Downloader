@@ -420,12 +420,17 @@ mod lookup_tests {
 /// `PF_API` overrides the base URL; a missing variable uses `DEFAULT_API`.
 pub async fn lookup(repo_id: &str) -> Result<Option<Entry>> {
     let base = std::env::var("PF_API").unwrap_or_else(|_| DEFAULT_API.to_string());
+    lookup_at(&base, repo_id).await
+}
+
+/// Same as `lookup`, against an explicit base URL (used by tests).
+pub async fn lookup_at(base: &str, repo_id: &str) -> Result<Option<Entry>> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| Error::Invalid(format!("Pirate Face client: {e}")))?;
     let response = client
-        .get(lookup_url(&base, repo_id))
+        .get(lookup_url(base, repo_id))
         .send()
         .await
         .map_err(|e| Error::Invalid(format!("Pirate Face unreachable: {e}")))?;
