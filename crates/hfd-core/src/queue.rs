@@ -190,10 +190,33 @@ impl Queue {
         self.list().into_iter().find(|j| j.id == id)
     }
 
-    /// Adds a job and returns its id.
+    /// Adds a job and returns its id. Idempotent: an identical request (same repo,
+    /// revision, files and local_dir) returns the existing job's id and creates
+    /// nothing. Use `add_forced` to queue it again.
     pub fn add(&self, spec: JobSpec) -> Result<String> {
+        self.add_inner(spec, false)
+    }
+
+    /// Like `add`, but a request matching a finished (`Done`) job queues a new run.
+    /// Other statuses still return the existing job.
+    pub fn add_forced(&self, spec: JobSpec) -> Result<String> {
+        self.add_inner(spec, true)
+    }
+
+    fn add_inner(&self, spec: JobSpec, force: bool) -> Result<String> {
         if spec.paths.is_empty() {
             return Err(Error::Invalid("job has no files".into()));
+        }
+        let key = dedup_key(&spec);
+        {
+            let inner = self.inner.lock().unwrap();
+            let existing = inner
+                .jobs
+                .iter()
+                .find(|j| dedup_key(&j.spec) == key && !(force && j.status == Status::Done));
+            if let Some(job) = existing {
+                return Ok(job.id.clone());
+            }
         }
         let id = {
             let mut inner = self.inner.lock().unwrap();
@@ -479,6 +502,19 @@ fn remove_partials(spec: &JobSpec) -> bool {
     removed
 }
 
+/// Identity of a request for deduplication. Paths are sorted so order does not matter.
+fn dedup_key(spec: &JobSpec) -> (String, String, String, Vec<String>, Option<PathBuf>) {
+    let mut paths = spec.paths.clone();
+    paths.sort();
+    (
+        format!("{:?}", spec.repo_type),
+        spec.repo_id.clone(),
+        spec.revision.clone(),
+        paths,
+        spec.local_dir.clone(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -530,7 +566,51 @@ mod tests {
         let q = queue(dir.path());
         let job = q.get("job-1").unwrap();
         assert_eq!(job.status, Status::Queued);
-        assert_eq!(q.add(spec()).unwrap(), "job-2");
+        let other = JobSpec {
+            paths: vec!["other.gguf".into()],
+            ..spec()
+        };
+        assert_eq!(q.add(other).unwrap(), "job-2");
+    }
+
+    #[test]
+    fn duplicate_add_returns_existing_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let q = queue(dir.path());
+        let first = q.add(spec()).unwrap();
+        let reordered = JobSpec {
+            paths: vec!["m.gguf".into()],
+            ..spec()
+        };
+        assert_eq!(q.add(reordered).unwrap(), first);
+        assert_eq!(q.list().len(), 1);
+    }
+
+    #[test]
+    fn done_job_is_returned_unless_forced() {
+        let dir = tempfile::tempdir().unwrap();
+        let q = queue(dir.path());
+        let id = q.add(spec()).unwrap();
+        q.inner.lock().unwrap().jobs[0].status = Status::Done;
+        assert_eq!(q.add(spec()).unwrap(), id);
+        assert_eq!(q.get(&id).unwrap().status, Status::Done);
+        let forced = q.add_forced(spec()).unwrap();
+        assert_ne!(forced, id);
+        assert_eq!(q.get(&forced).unwrap().status, Status::Queued);
+    }
+
+    #[test]
+    fn different_local_dir_is_a_different_job() {
+        let dir = tempfile::tempdir().unwrap();
+        let q = queue(dir.path());
+        let a = q.add(spec()).unwrap();
+        let b = q
+            .add(JobSpec {
+                local_dir: Some(dir.path().join("x")),
+                ..spec()
+            })
+            .unwrap();
+        assert_ne!(a, b);
     }
 
     #[test]

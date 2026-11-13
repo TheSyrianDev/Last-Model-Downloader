@@ -175,3 +175,15 @@ a size.
 - Fit: `yes` if size <= free RAM, `tight` if up to 10% over, `no` beyond that.
   VRAM is not counted. A pick with no size in the registry has `fits: null`.
 - Errors on malformed JSON or an empty tier list. It never downloads anything.
+
+## Queue: duplicate requests
+
+`Queue::add(spec)` is idempotent. A request with the same repo type, repo id,
+revision, set of files (order ignored) and `local_dir` as an existing job returns
+that job's id and creates nothing.
+
+- If the existing job is `Done`, `add` still returns its id; check its status.
+- `Queue::add_forced(spec)` queues a new run when the match is `Done`. Other
+  statuses (queued, running, paused, failed, cancelled) still return the existing id.
+  To retry a failed or cancelled job, resume or re-run it explicitly.
+- A different `local_dir` or file set is a separate job.
