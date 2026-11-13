@@ -4,7 +4,9 @@
 
 ### Added
 - `hfd doctor`: checks network, token, Xet state and free disk, then recommends settings. `--json` for scripts. Exits 2 on a problem.
-- `hfd lastengine`: downloads the Last Engine release asset and checks it against `SHA256SUMS.txt`. Discards the file on mismatch. Currently always fetches the CUDA variant (hw-probe tier selection not wired yet).
+- `hfd lastengine`: downloads the Last Engine release asset and checks it against `SHA256SUMS.txt`. Discards the file on mismatch. Defaults to hw-probe-based variant selection.
+- `hfd-core` `queue` module: `Queue` with add, pause, resume, cancel, list and subscribe. Persists to a JSON file so a restart resumes. Sequential by default. Cancel removes partials only with `delete_partial`.
+- `hfd lastengine --variant auto` (default) picks the build from hw-probe. NVIDIA with at least 4 GB VRAM gets `cuda`; other hardware errors.
 - Installed-model helpers in the core library: `record::list_installed` and `record::remove_installed` (see `docs/EMBEDDING.md`).
 
 ### Fixed
