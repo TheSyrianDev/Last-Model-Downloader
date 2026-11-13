@@ -64,6 +64,54 @@ Create a `CancelToken` and call `token.cancel()` from anywhere. The download ret
 
 Resume works in whole pieces of 8–64 MB, depending on file size. A piece that was only partly written when you cancelled is downloaded again.
 
+## Download queue (`queue`)
+
+`Queue` runs download jobs, one at a time by default. It saves its state to a JSON file, so a restart picks up unfinished jobs. Pause keeps partial files. Cancel removes partial files only when you pass `delete_partial = true` and the job has a `local_dir`. Finished files are never deleted.
+
+```rust
+use hfd_core::queue::{JobSpec, Queue, QueueEvent, Status};
+use hfd_core::{Config, DownloadOptions, RepoType};
+
+let queue = Queue::open(
+    "/path/to/queue.json",
+    Config::from_env(),
+    None,                      // or Some(token)
+    DownloadOptions::default(),
+)?;
+queue.set_max_parallel(1);     // default; raise for more jobs at once
+
+let mut events = queue.subscribe();
+tokio::spawn({
+    let queue = queue.clone();
+    async move { queue.run().await }   // runs until the process stops
+});
+
+let id = queue.add(JobSpec {
+    repo_type: RepoType::Model,
+    repo_id: "bartowski/SmolLM2-135M-Instruct-GGUF".into(),
+    revision: "main".into(),
+    paths: vec!["SmolLM2-135M-Instruct-Q4_K_M.gguf".into()],
+    local_dir: Some("/models/smollm2".into()),
+})?;
+
+while let Ok(event) = events.recv().await {
+    match event {
+        QueueEvent::Progress { bytes, total, bytes_per_sec, eta_secs, .. } => { /* update UI */ }
+        QueueEvent::Finished { id, sha_ok } => println!("{id} done, sha ok: {sha_ok}"),
+        QueueEvent::Failed { id, reason, retryable } => eprintln!("{id}: {reason} (retry: {retryable})"),
+        _ => {}
+    }
+}
+
+queue.pause(&id)?;                       // keeps partial files
+queue.resume(&id)?;
+queue.cancel(&id, true)?;                // removes this job's partial files
+let jobs = queue.list();
+assert!(matches!(queue.get(&id).map(|j| j.status), Some(Status::Cancelled)));
+```
+
+Events are JSON-tagged with `type`: `queued`, `started`, `progress` (`id`, `path`, `bytes`, `total`, `bytes_per_sec`, `eta_secs`), `paused`, `cancelled` (`deleted_partial`), `finished` (`sha_ok`), and `failed` (`reason`, `retryable`). `resume` only works on `Paused` jobs. A `Failed` job is final: add a new job to retry it. A job that was `Running` when the process stopped comes back as `Queued`, and its partial files let the download continue. `finished.sha_ok` is `true` for every job that completes, because each file is checked before it counts as done.
+
 ## Errors
 
 `hfd_core::Error` variants a UI should handle:
