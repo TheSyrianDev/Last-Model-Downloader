@@ -62,6 +62,7 @@ async fn build_report(config: &Config, target: &Path, need: Option<u64>) -> Valu
             "note": "Xet is opt-in; an earlier stall switches a host to HTTP for 24 hours",
         },
         "disk": disk,
+        "pirateface": { "aria2c_available": aria2c_available(), "optional": true },
         "recommended": {
             "engine": "http",
             "connections": 8,
@@ -69,6 +70,17 @@ async fn build_report(config: &Config, target: &Path, need: Option<u64>) -> Valu
             "max_speed": null,
         },
     })
+}
+
+/// Pirate Face is opt-in and needs an external `aria2c`; its absence is not a problem.
+fn aria2c_available() -> bool {
+    std::process::Command::new("aria2c")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 async fn check_network(config: &Config) -> Value {
@@ -125,6 +137,13 @@ fn check_disk(target: &Path, need: Option<u64>) -> Value {
 
 fn print_text(report: &Value) {
     println!("endpoint: {}", report["endpoint"].as_str().unwrap_or("?"));
+    let aria = report["pirateface"]["aria2c_available"]
+        .as_bool()
+        .unwrap_or(false);
+    println!(
+        "pirateface: aria2c {} (optional)",
+        if aria { "found" } else { "not installed" }
+    );
     let net = &report["network"];
     if net["reachable"].as_bool().unwrap_or(false) {
         println!("network:  ok ({} ms)", net["latency_ms"]);
