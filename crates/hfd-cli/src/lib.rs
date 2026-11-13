@@ -1,6 +1,7 @@
 #[cfg(unix)]
 mod doctor;
 mod lastengine;
+#[cfg(unix)]
 mod queue;
 #[cfg(not(unix))]
 #[path = "queue_stub.rs"]
@@ -52,6 +53,7 @@ enum Commands {
     /// Fetch the Last Engine release asset for this machine and verify its SHA-256.
     Lastengine(lastengine::LastEngineArgs),
     /// Check network, Xet/HTTP state and free disk, and recommend settings. Read-only.
+    #[cfg(unix)]
     Doctor(doctor::DoctorArgs),
     #[command(name = "__daemon", hide = true)]
     InternalDaemon,
@@ -329,6 +331,7 @@ pub async fn run() {
         Commands::Daemon(args) => queue::daemon_command(args.stop).await,
         Commands::InternalDaemon => queue::daemon_command(false).await,
         Commands::Lastengine(args) => lastengine::run(args).await,
+        #[cfg(unix)]
         Commands::Doctor(args) => match doctor::run(args).await {
             Ok(true) => Ok(()),
             Ok(false) => std::process::exit(2),
