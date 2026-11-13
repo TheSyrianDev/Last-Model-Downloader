@@ -17,6 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, broadcast};
+use tokio::task::JoinSet;
 
 use crate::engine::{DownloadOptions, Downloader};
 use crate::progress::{Event, EventSink};
@@ -280,9 +281,14 @@ impl Queue {
         Ok(())
     }
 
-    /// Runs queued jobs until the process stops. Spawn it on a tokio runtime.
+    /// Runs queued jobs. Returns only if the future is dropped, which also
+    /// aborts any job still running (its partial files stay on disk, and the
+    /// job is picked up again after reopening the queue). Spawn it on a tokio
+    /// runtime, or select on it to stop with the process.
     pub async fn run(&self) {
+        let mut tasks: JoinSet<()> = JoinSet::new();
         loop {
+            while tasks.try_join_next().is_some() {}
             let next = {
                 let mut inner = self.inner.lock().unwrap();
                 if inner.running.len() >= inner.max_parallel {
@@ -305,9 +311,15 @@ impl Queue {
                         .running
                         .insert(job.id.clone(), (token.clone(), Stop::Pause));
                     let queue = self.clone();
-                    tokio::spawn(async move { queue.execute(job, token).await });
+                    tasks.spawn(async move { queue.execute(job, token).await });
                 }
-                None => self.wake.notified().await,
+                None if tasks.is_empty() => self.wake.notified().await,
+                None => {
+                    tokio::select! {
+                        _ = self.wake.notified() => {}
+                        _ = tasks.join_next() => {}
+                    }
+                }
             }
         }
     }
@@ -362,7 +374,9 @@ impl Queue {
 
     async fn download_all(&self, job: &Job, token: &CancelToken) -> Result<bool> {
         let repo = RepoRef::new(job.spec.repo_type, job.spec.repo_id.clone());
-        let downloader = Downloader::new(self.hub.clone(), self.options.clone());
+        let mut options = self.options.clone();
+        options.local_dir = job.spec.local_dir.clone();
+        let downloader = Downloader::new(self.hub.clone(), options);
         let events = self.events.clone();
         let id = job.id.clone();
         let sink: EventSink = Arc::new(move |event: Event| {
