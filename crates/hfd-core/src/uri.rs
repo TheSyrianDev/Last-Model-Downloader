@@ -347,6 +347,13 @@ fn normalize_path(path: &str) -> Result<String> {
                 "unsafe path segment '{segment}' in repository path"
             )));
         }
+        // ':' makes a Windows drive or stream prefix ("C:x", "a:b"), which
+        // escapes the cache folder when joined.
+        if segment.contains(':') {
+            return Err(Error::Invalid(format!(
+                "':' is not allowed in repository path segments: '{segment}'"
+            )));
+        }
         if segment.contains('\\') || segment.contains('/') {
             return Err(Error::Invalid(format!(
                 "path separators are not allowed in repository path segments: '{segment}'"
@@ -386,6 +393,32 @@ pub fn validate_repo_path(path: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_windows_prefixes_and_separators() {
+        for bad in [
+            "C:evil.bin",
+            "a:b",
+            "..\\x",
+            "dir\\file",
+            "dir/..",
+            "./x",
+            "a/./b",
+        ] {
+            assert!(validate_repo_path(bad).is_err(), "should reject {bad}");
+        }
+        assert!(validate_repo_path("sub/model.gguf").is_ok());
+    }
+
+    #[test]
+    fn long_nested_path_is_accepted() {
+        let deep = (0..40)
+            .map(|i| format!("d{i:02}"))
+            .collect::<Vec<_>>()
+            .join("/");
+        let path = format!("{deep}/{}.gguf", "x".repeat(200));
+        assert!(validate_repo_path(&path).is_ok());
+    }
 
     const EP: &str = "https://huggingface.co";
 
