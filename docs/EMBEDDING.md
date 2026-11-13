@@ -162,3 +162,16 @@ Use `remove_installed` for "delete model" so the registry and the disk stay in s
 ## Platforms
 
 CI builds and tests on Linux, macOS and Windows. Real downloads have only been tested on Linux. On Windows, the cache uses hard links or copies when symlinks aren't allowed. The CLI's background daemon is Unix-only and is not part of the library.
+
+## Onboarding recommendation: `recommend`
+
+`hfd_core::recommend::recommend(probe_json, registry_json)` takes the output of
+`hw-probe` and `~/AI/Rig/registry/models.json` and returns the chat, image and
+video picks for this machine's tier, with a fit verdict where the registry gives
+a size.
+
+- Tier: matches `tier.tier` from the probe against the registry tier names; falls
+  back to the hardware class (GPU with at least 4096 MiB VRAM, or CPU by RAM).
+- Fit: `yes` if size <= free RAM, `tight` if up to 10% over, `no` beyond that.
+  VRAM is not counted. A pick with no size in the registry has `fits: null`.
+- Errors on malformed JSON or an empty tier list. It never downloads anything.

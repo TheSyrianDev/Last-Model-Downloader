@@ -9,6 +9,7 @@ pub mod hub;
 pub mod progress;
 pub mod quant;
 pub mod queue;
+pub mod recommend;
 pub mod record;
 pub mod state;
 pub mod uri;
