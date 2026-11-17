@@ -6,6 +6,7 @@ pub mod config;
 pub mod engine;
 pub mod error;
 pub mod hub;
+pub mod modelscope;
 pub mod pirateface;
 pub mod progress;
 pub mod quant;

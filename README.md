@@ -5,7 +5,7 @@
 
 # hf-dl
 
-A Hugging Face downloader with resumable, segmented downloads, written in Rust. It installs two binaries, `hfd` and `hf-dl`, which are the same program.
+A model downloader in Rust. It fetches models and datasets from the Hugging Face Hub, from ModelScope, and (opt-in, over BitTorrent) from Pirate Face, with resumable, verified transfers. It installs two binaries, `hfd` and `hf-dl`, which are the same program.
 
 > [!NOTE]
 > **Beta.** It works and has tests, but it has had little use outside the author's machine. Report problems on the issue tracker.
@@ -27,7 +27,22 @@ hfd download <repo> <file.gguf> --local-dir ./models --flat   # files land by ba
 hfd download <repo> --dry-run          # resolve files and print the plan
 ```
 
-Useful flags: `--type` (model, dataset, space), `--revision`, `--include` / `--exclude` (globs, repeatable), `--cache-dir`, `--local-dir`, `--flat`, `--force-download`, `--verify auto|always|never`, `--max-workers`, `--connections`, `--max-speed` (e.g. `5M`), `--engine auto|http|xet`, `--json`, `--quiet`.
+Useful flags: `--source hf|modelscope|pirateface`, `--type` (model, dataset, space), `--revision`, `--include` / `--exclude` (globs, repeatable), `--cache-dir`, `--local-dir`, `--flat`, `--force-download`, `--verify auto|always|never`, `--max-workers`, `--connections`, `--max-speed` (e.g. `5M`), `--engine auto|http|xet`, `--json`, `--quiet`.
+
+## Where the files come from
+
+Hugging Face is the default (`--source hf`). Two other sources are chosen explicitly; there is no silent fallback between them.
+
+**ModelScope** (`--source modelscope`) lists the repository through ModelScope's own API and downloads each file over HTTPS, checking the sha256 the hub published:
+
+```sh
+hfd download Qwen/Qwen3-0.6B --source modelscope --local-dir ./model
+hfd download AI-ModelScope/ShareGPT-4o --source modelscope --type dataset --dry-run
+```
+
+The revision defaults to `master`, which is ModelScope's default branch. `MODELSCOPE_API` points the source at a mirror, and `MODELSCOPE_API_TOKEN` (or `MODELSCOPE_TOKEN`) is sent for private repositories. Files without a published digest cannot be verified, so they can go to `--local-dir` but not into the cache.
+
+**Pirate Face** (`--source pirateface`) is opt-in, needs `aria2c` and `--local-dir`, and verifies every file against the hashes in the listing.
 
 Plain HTTP is the default engine. Xet is opt-in (`--engine auto` or `--engine xet`); if Xet stalls, hfd falls back to HTTP and skips Xet on that host for 24 hours.
 

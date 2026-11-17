@@ -1,6 +1,7 @@
 #[cfg(unix)]
 mod doctor;
 mod lastengine;
+mod modelscope_dl;
 mod pirateface_dl;
 #[cfg(unix)]
 mod queue;
@@ -32,7 +33,7 @@ use serde_json::json;
 #[command(
     name = "hfd",
     version,
-    about = "Hugging Face downloader with resumable, segmented downloads",
+    about = "Model downloader for the Hugging Face Hub, ModelScope and Pirate Face",
     long_about = None
 )]
 struct Cli {
@@ -43,7 +44,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 #[allow(clippy::large_enum_variant)]
 enum Commands {
-    /// Download files from a Hugging Face repository.
+    /// Download files from a repository on the chosen source.
     Download(DownloadArgs),
     /// Inspect the active Hugging Face credentials.
     Auth(AuthArgs),
@@ -155,8 +156,8 @@ struct DownloadArgs {
     #[arg(long)]
     revision: Option<String>,
 
-    /// Where bytes come from. `pirateface` is opt-in, needs `aria2c`, and requires
-    /// --local-dir. There is no fallback to Hugging Face.
+    /// Where bytes come from: the Hugging Face Hub, ModelScope, or (opt-in,
+    /// needs `aria2c`) Pirate Face. There is no fallback between them.
     #[arg(long, value_enum, default_value = "hf")]
     source: SourceArg,
 
@@ -267,6 +268,7 @@ impl From<RepoTypeArg> for RepoType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum SourceArg {
     Hf,
+    Modelscope,
     Pirateface,
 }
 
@@ -464,6 +466,26 @@ async fn run_whoami() -> Result<()> {
 }
 
 async fn run_download(args: DownloadArgs) -> Result<()> {
+    if args.source == SourceArg::Modelscope {
+        let config = Config::from_env().with_cache_dir(args.cache_dir.clone());
+        let paths = modelscope_dl::run(modelscope_dl::Request {
+            repo_id: &args.repo_id,
+            repo_type: args.repo_type.map(Into::into).unwrap_or(RepoType::Model),
+            revision: args.revision.as_deref(),
+            filenames: &args.filenames,
+            include: &args.include,
+            exclude: &args.exclude,
+            local_dir: args.local_dir.as_deref(),
+            flat: args.flat,
+            cache_root: &config.cache_dir,
+            dry_run: args.dry_run,
+        })
+        .await?;
+        for path in paths {
+            println!("{}", path.display());
+        }
+        return Ok(());
+    }
     if args.source == SourceArg::Pirateface {
         return pirateface_dl::run(
             &args.repo_id,
