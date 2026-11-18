@@ -1,11 +1,6 @@
-<p align="center"><a href="https://github.com/TheSyrianDev/LastAI">Last AI</a> · <a href="https://github.com/TheSyrianDev/LastEngine">Last Engine</a> · <a href="https://github.com/TheSyrianDev/hf-dl">hf-dl</a></p>
+<p align="center"><a href="https://thesyyriandev.github.io/LastSoft/">Part of LastSoft</a></p>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
-  <img src="assets/banner-light.svg" alt="hf-dl" width="100%">
-</picture>
-
-# hf-dl
+# Last Model Downloader
 
 A Hugging Face downloader with resumable, segmented downloads, written in Rust. It installs two binaries, `hfd` and `hf-dl`, which are the same program.
 
