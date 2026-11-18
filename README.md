@@ -1,4 +1,4 @@
-<p align="center"><a href="https://thesyyriandev.github.io/LastSoft/">Part of LastSoft</a></p>
+<p align="center"><a href="https://thesyriandev.github.io/LastSoft/">Part of LastSoft</a></p>
 
 # Last Model Downloader
 
