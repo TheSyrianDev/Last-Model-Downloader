@@ -1,4 +1,4 @@
-//! `hfd lastengine`: fetch the Last Engine release asset for this machine and
+//! `mdl lastengine`: fetch the Last Engine release asset for this machine and
 //! check it against the release's SHA256SUMS.txt before keeping it.
 
 use std::io::Write;

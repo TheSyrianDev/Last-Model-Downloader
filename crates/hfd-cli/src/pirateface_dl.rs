@@ -1,4 +1,4 @@
-//! `hfd download --source pirateface`: opt-in transfer through Pirate Face.
+//! `mdl download --source pirateface`: opt-in transfer through Pirate Face.
 //! Lookup over HTTP, torrent transfer through `aria2c`, then sha256 verification.
 //! Never falls back to Hugging Face.
 

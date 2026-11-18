@@ -190,7 +190,7 @@ pub async fn poll_device_token(config: &Config, info: &DeviceCodeInfo) -> Result
             Some("expired_token") => {
                 return Err(Error::Auth {
                     repo: "oauth/device".to_string(),
-                    detail: "the device code expired; run `hfd auth login` again".to_string(),
+                    detail: "the device code expired; run `mdl auth login` again".to_string(),
                 });
             }
             Some("access_denied") => {
@@ -222,7 +222,7 @@ pub async fn poll_device_token(config: &Config, info: &DeviceCodeInfo) -> Result
 
     Err(Error::Auth {
         repo: "oauth/device".to_string(),
-        detail: "the device code expired; run `hfd auth login` again".to_string(),
+        detail: "the device code expired; run `mdl auth login` again".to_string(),
     })
 }
 

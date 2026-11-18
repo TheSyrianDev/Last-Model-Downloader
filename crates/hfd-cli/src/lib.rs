@@ -31,9 +31,9 @@ use serde_json::json;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "hfd",
+    name = "mdl",
     version,
-    about = "Model downloader for the Hugging Face Hub, ModelScope and Pirate Face",
+    about = "Model-Downloader: models and datasets from the Hugging Face Hub, ModelScope and Pirate Face",
     long_about = None
 )]
 struct Cli {
@@ -384,7 +384,7 @@ async fn run_auth(args: AuthArgs) -> Result<()> {
 async fn run_login(args: LoginArgs) -> Result<()> {
     let config = Config::from_env();
     if args.token.is_none() && !args.force && resolve_token(None, &config).is_some() {
-        println!("Already logged in. Use `hfd auth login --force` to log in again.");
+        println!("Already logged in. Use `mdl auth login --force` to log in again.");
         return Ok(());
     }
 
@@ -425,7 +425,7 @@ fn run_logout() -> Result<()> {
 fn run_token() -> Result<()> {
     let config = Config::from_env();
     let token = resolve_token(None, &config)
-        .ok_or_else(|| anyhow!("not logged in; run `hfd auth login`"))?;
+        .ok_or_else(|| anyhow!("not logged in; run `mdl auth login`"))?;
     println!("{token}");
     Ok(())
 }
@@ -459,7 +459,7 @@ fn run_list() -> Result<()> {
 async fn run_whoami() -> Result<()> {
     let config = Config::from_env();
     let token = resolve_token(None, &config)
-        .ok_or_else(|| anyhow!("not logged in; set HF_TOKEN or run `hfd auth login`"))?;
+        .ok_or_else(|| anyhow!("not logged in; set HF_TOKEN or run `mdl auth login`"))?;
     let hub = HubClient::new(config, Some(token))?;
     println!("{}", hub.whoami().await?);
     Ok(())

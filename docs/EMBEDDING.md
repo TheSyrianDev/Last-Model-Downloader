@@ -1,6 +1,6 @@
 # Embedding hfd-core
 
-`hfd-core` is the download library behind `hfd`. It is licensed under Apache-2.0 so applications can bundle it; the `hfd` CLI stays under PolyForm Noncommercial.
+`hfd-core` is the download library behind `mdl`. It is licensed under Apache-2.0 so applications can bundle it; the `mdl` CLI stays under PolyForm Noncommercial.
 
 A complete, runnable example is in [`crates/hfd-core/examples/embed.rs`](../crates/hfd-core/examples/embed.rs):
 
@@ -191,13 +191,13 @@ that job's id and creates nothing.
 
 ## Pirate Face source (opt-in)
 
-`hfd download <repo> --source pirateface --local-dir <dir> [files...]`
+`mdl download <repo> --source pirateface --local-dir <dir> [files...]`
 
 - Looks the repo up at `PF_API` (default `https://pirateface.co`), then transfers
   through `aria2c`. Seeding is disabled. Every file is checked against the sha256
   in the entry.
 - Needs `aria2c` on PATH. Without it the command fails with "transfer unavailable";
-  `hfd doctor` reports whether it is installed.
+  `mdl doctor` reports whether it is installed.
 - `--source hf` (the default) never contacts Pirate Face.
 - Refused, with no fallback to Hugging Face: repos not listed, Pirate Face-only
   entries (no HF commit), and a `--revision` that differs from the entry.

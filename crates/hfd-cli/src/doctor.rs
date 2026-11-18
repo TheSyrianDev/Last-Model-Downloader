@@ -1,4 +1,4 @@
-//! `hfd doctor`: checks what a download would run into and recommends settings.
+//! `mdl doctor`: checks what a download would run into and recommends settings.
 //! Read-only. Checks network reachability, Xet vs HTTP state, and free disk at the target.
 
 use std::path::{Path, PathBuf};

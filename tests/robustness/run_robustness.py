@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download robustness tests for hfd against a local flaky Hub.
+"""Download robustness tests for mdl against a local flaky Hub.
 
 Usage: tests/robustness/run_robustness.py [--hfd PATH] [--keep]
 Needs only the stdlib. Each case gets its own scratch directory under a
@@ -46,8 +46,8 @@ def start_hub(root, **faults):
     return proc, int(line.split()[1])
 
 
-def hfd_cmd(hfd, port, local_dir, extra=()):
-    return [hfd, "download", REPO, FILE, "--local-dir", local_dir,
+def hfd_cmd(mdl, port, local_dir, extra=()):
+    return [mdl, "download", REPO, FILE, "--local-dir", local_dir,
             "--engine", "http", "--max-workers", "1", "--connections", "1",
             "--verify", "always", "--format", "human", *extra]
 
@@ -77,7 +77,7 @@ def make_data(root):
 
 
 def partials(local):
-    """Partial download files; hfd keeps them under hidden .cache dirs."""
+    """Partial download files; mdl keeps them under hidden .cache dirs."""
     found = []
     for dirpath, _, names in os.walk(local):
         for n in names:
@@ -101,14 +101,14 @@ def check(name, ok, detail=""):
     print(f"[{'PASS' if ok else 'FAIL'}] {name}" + (f" -- {detail}" if detail and not ok else ""))
 
 
-def case_kill_resume(hfd, tmp):
+def case_kill_resume(mdl, tmp):
     name = "kill mid-download, then resume"
     root = new_root(tmp, "kill")
     want = make_data(root)
     hub, port = start_hub(root, throttle=2 * 1024 * 1024)
     try:
         env = hfd_env(root, port)
-        proc = subprocess.Popen(hfd_cmd(hfd, port, root["local"]), env=env,
+        proc = subprocess.Popen(hfd_cmd(mdl, port, root["local"]), env=env,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         wait_for_partial(root["local"], 4 * 1024 * 1024)
         proc.send_signal(signal.SIGKILL)
@@ -120,7 +120,7 @@ def case_kill_resume(hfd, tmp):
         hub.terminate(); hub.wait()
         hub, port = start_hub(root)
         env = hfd_env(root, port)
-        res = subprocess.run(hfd_cmd(hfd, port, root["local"]), env=env,
+        res = subprocess.run(hfd_cmd(mdl, port, root["local"]), env=env,
                              capture_output=True, text=True, timeout=300)
         got = sha256(os.path.join(root["local"], FILE)) if os.path.exists(os.path.join(root["local"], FILE)) else None
         ok = res.returncode == 0 and got == want and before > 0
@@ -129,13 +129,13 @@ def case_kill_resume(hfd, tmp):
         hub.terminate(); hub.wait()
 
 
-def case_network_drop(hfd, tmp):
+def case_network_drop(mdl, tmp):
     name = "network drop mid-file is retried to a correct file"
     root = new_root(tmp, "drop")
     want = make_data(root)
     hub, port = start_hub(root, drop_after=5 * 1024 * 1024, drop_count=2)
     try:
-        res = subprocess.run(hfd_cmd(hfd, port, root["local"]), env=hfd_env(root, port),
+        res = subprocess.run(hfd_cmd(mdl, port, root["local"]), env=hfd_env(root, port),
                              capture_output=True, text=True, timeout=300)
         path = os.path.join(root["local"], FILE)
         got = sha256(path) if os.path.exists(path) else None
@@ -145,7 +145,7 @@ def case_network_drop(hfd, tmp):
         hub.terminate(); hub.wait()
 
 
-def case_disk_full(hfd, tmp):
+def case_disk_full(mdl, tmp):
     name = "disk full gives a clear error and no finished file"
     root = new_root(tmp, "full")
     want = make_data(root)
@@ -155,7 +155,7 @@ def case_disk_full(hfd, tmp):
             # A file-size limit makes write() fail with EFBIG, like a full disk.
             resource.setrlimit(resource.RLIMIT_FSIZE, (5 * 1024 * 1024, 5 * 1024 * 1024))
             signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
-        res = subprocess.run(hfd_cmd(hfd, port, root["local"]), env=hfd_env(root, port),
+        res = subprocess.run(hfd_cmd(mdl, port, root["local"]), env=hfd_env(root, port),
                              capture_output=True, text=True, timeout=300, preexec_fn=limit)
         path = os.path.join(root["local"], FILE)
         output = res.stdout + res.stderr
@@ -164,7 +164,7 @@ def case_disk_full(hfd, tmp):
         check(name, clear and no_final,
               f"rc={res.returncode} final_exists={not no_final} tail={output[-400:]}")
         # Recovery: with space back, the same command must finish correctly.
-        res2 = subprocess.run(hfd_cmd(hfd, port, root["local"]), env=hfd_env(root, port),
+        res2 = subprocess.run(hfd_cmd(mdl, port, root["local"]), env=hfd_env(root, port),
                               capture_output=True, text=True, timeout=300)
         got = sha256(path) if os.path.exists(path) else None
         check(name + " (recovery)", res2.returncode == 0 and got == want,
@@ -173,14 +173,14 @@ def case_disk_full(hfd, tmp):
         hub.terminate(); hub.wait()
 
 
-def case_ctrl_c(hfd, tmp):
+def case_ctrl_c(mdl, tmp):
     name = "Ctrl-C leaves a clean, resumable state"
     root = new_root(tmp, "sigint")
     want = make_data(root)
     hub, port = start_hub(root, throttle=2 * 1024 * 1024)
     try:
         env = hfd_env(root, port)
-        proc = subprocess.Popen(hfd_cmd(hfd, port, root["local"]), env=env,
+        proc = subprocess.Popen(hfd_cmd(mdl, port, root["local"]), env=env,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         wait_for_partial(root["local"], 4 * 1024 * 1024)
         proc.send_signal(signal.SIGINT)
@@ -188,7 +188,7 @@ def case_ctrl_c(hfd, tmp):
             _, err = proc.communicate(timeout=30)
         except subprocess.TimeoutExpired:
             proc.kill(); proc.communicate()
-            check(name, False, "hfd did not exit within 30 s of SIGINT")
+            check(name, False, "mdl did not exit within 30 s of SIGINT")
             return
         path = os.path.join(root["local"], FILE)
         no_final = not os.path.exists(path)
@@ -197,7 +197,7 @@ def case_ctrl_c(hfd, tmp):
               f"rc={proc.returncode} final_exists={not no_final} stderr={(err or '')[-300:]}")
         hub.terminate(); hub.wait()
         hub, port = start_hub(root)
-        res = subprocess.run(hfd_cmd(hfd, port, root["local"]), env=hfd_env(root, port),
+        res = subprocess.run(hfd_cmd(mdl, port, root["local"]), env=hfd_env(root, port),
                              capture_output=True, text=True, timeout=300)
         got = sha256(path) if os.path.exists(path) else None
         check(name + " (resume)", res.returncode == 0 and got == want,
@@ -206,17 +206,17 @@ def case_ctrl_c(hfd, tmp):
         hub.terminate(); hub.wait()
 
 
-def case_two_processes(hfd, tmp):
-    name = "two hfd processes on the same file: second fails clearly"
+def case_two_processes(mdl, tmp):
+    name = "two mdl processes on the same file: second fails clearly"
     root = new_root(tmp, "two")
     want = make_data(root)
     hub, port = start_hub(root, throttle=2 * 1024 * 1024)
     try:
         env = hfd_env(root, port)
-        first = subprocess.Popen(hfd_cmd(hfd, port, root["local"]), env=env,
+        first = subprocess.Popen(hfd_cmd(mdl, port, root["local"]), env=env,
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         wait_for_partial(root["local"], 2 * 1024 * 1024)
-        second = subprocess.run(hfd_cmd(hfd, port, root["local"]), env=env,
+        second = subprocess.run(hfd_cmd(mdl, port, root["local"]), env=env,
                                 capture_output=True, text=True, timeout=120)
         out = (second.stdout + second.stderr).lower()
         clear = second.returncode != 0 and ("lock" in out or "in use" in out or "another" in out)
@@ -232,11 +232,11 @@ def case_two_processes(hfd, tmp):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--hfd", default=os.path.join(HERE, "..", "..", "target", "release", "hfd"))
+    ap.add_argument("--hfd", default=os.path.join(HERE, "..", "..", "target", "release", "mdl"))
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--only", default="")
     args = ap.parse_args()
-    hfd = os.path.abspath(args.hfd)
+    mdl = os.path.abspath(args.hfd)
     tmp = tempfile.mkdtemp(prefix="hfd-robust-")
     cases = [case_kill_resume, case_network_drop, case_disk_full, case_ctrl_c, case_two_processes]
     try:
@@ -244,7 +244,7 @@ def main():
             if args.only and args.only not in case.__name__:
                 continue
             try:
-                case(hfd, tmp)
+                case(mdl, tmp)
             except Exception as exc:  # report and keep going
                 check(case.__name__, False, f"exception: {exc!r}")
     finally:

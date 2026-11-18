@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs inside a fresh container. Installs the hfd release binary from GitHub,
+# Runs inside a fresh container. Installs the mdl release binary from GitHub,
 # verifies its checksum, and downloads a tiny GGUF model.
 set -uo pipefail
 
@@ -31,12 +31,12 @@ step "download release binary and checksum"
 curl -fsSL -o "$WORK/hfd" "$BASE/$ASSET" || fail "binary download"
 curl -fsSL -o "$WORK/hfd.sha256" "$BASE/$ASSET.sha256" || fail "checksum download"
 if [ -s "$WORK/hfd" ] && [ -s "$WORK/hfd.sha256" ]; then
-  (cd "$WORK" && awk '{print $1"  hfd"}' hfd.sha256 | sha256sum -c -) || fail "sha256 mismatch"
+  (cd "$WORK" && awk '{print $1"  mdl"}' hfd.sha256 | sha256sum -c -) || fail "sha256 mismatch"
 fi
 chmod +x "$WORK/hfd"
 
 step "binary runs"
-"$WORK/hfd" --version || fail "hfd --version"
+"$WORK/hfd" --version || fail "mdl --version"
 ldd "$WORK/hfd" 2>&1 | grep -q 'not found' && { fail "missing shared libraries"; ldd "$WORK/hfd" | grep 'not found'; }
 
 step "download tiny model"

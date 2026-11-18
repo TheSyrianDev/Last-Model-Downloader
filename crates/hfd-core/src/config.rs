@@ -48,7 +48,7 @@ impl Config {
             xet_cache_dir,
             token_path,
             stored_tokens_path,
-            user_agent: format!("hfd/{}", env!("CARGO_PKG_VERSION")),
+            user_agent: format!("model-downloader/{}", env!("CARGO_PKG_VERSION")),
         }
     }
 

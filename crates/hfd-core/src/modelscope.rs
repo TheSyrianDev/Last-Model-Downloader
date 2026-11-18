@@ -201,7 +201,7 @@ pub fn token() -> Option<String> {
 
 fn client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
-        .user_agent(concat!("hfd/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("model-downloader/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| Error::Invalid(format!("ModelScope client: {e}")))

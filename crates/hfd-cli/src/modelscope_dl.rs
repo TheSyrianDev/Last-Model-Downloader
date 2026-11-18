@@ -1,4 +1,4 @@
-//! `hfd download --source modelscope`: list a ModelScope repository, download
+//! `mdl download --source modelscope`: list a ModelScope repository, download
 //! the selected files over HTTP, verify each sha256 the hub published, then
 //! place them where the caller asked. No fallback to Hugging Face.
 //!

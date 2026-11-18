@@ -1,6 +1,6 @@
 [package]
 name = "hfd-core"
-description = "Download engine and hub clients (Hugging Face, ModelScope) for hf-dl"
+description = "Download engine and hub clients (Hugging Face, ModelScope) for model-downloader"
 version.workspace = true
 edition.workspace = true
 license = "Apache-2.0"

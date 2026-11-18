@@ -1,4 +1,4 @@
-# hf-dl handoff (2026-11-13)
+# model-downloader handoff (2026-11-13)
 
 ## State
 - Public mirror `main` at `b7d030b`, CI green on all five jobs. Tag `v0.4.0-rc.1` and the GitHub prerelease are up.

@@ -1,6 +1,6 @@
 [package]
 name = "hfd-cli"
-description = "Command-line interface for hf-dl"
+description = "Command-line interface for Model-Downloader"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

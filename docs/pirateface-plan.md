@@ -1,4 +1,4 @@
-# Pirate Face backend for hfd (plan)
+# Pirate Face backend for mdl (plan)
 
 Status: research only. No code yet. Nothing here has touched the network except read-only
 requests to pirateface.co and PyPI (metadata and the wheel, inspected offline).
@@ -18,11 +18,11 @@ requests to pirateface.co and PyPI (metadata and the wheel, inspected offline).
 - Env knobs in the wheel: `PF_CACHE` (~/.cache/pirateface), `PF_METADATA_TIMEOUT=30`, `PF_STALL_TIMEOUT=60`,
   `PF_ONLY_STALL_TIMEOUT=600`, `PF_LISTEN`.
 
-## Decisions for hfd
+## Decisions for mdl
 1. **Optional backend, opt-in.** `--source pirateface` on `download`, or `HFD_SOURCE=pirateface`.
    Default stays Hugging Face. Setting `--source hf` (default) never contacts Pirate Face.
 2. **Fallback only when asked.** If Pirate Face is selected and it has no usable entry or is unreachable,
-   hfd fails with a clear message. It does NOT silently switch to HF or the reverse, so the user
+   mdl fails with a clear message. It does NOT silently switch to HF or the reverse, so the user
    always knows where bytes came from. (Optional `--source pirateface,hf` for an ordered fallback later.)
 3. **Verify against HF's fingerprint.** Every file must match the sha256 recorded in the entry. For
    LFS files this equals the sha256 HF publishes. For small git files, check the git blob sha1 (as in `--verify always`).
@@ -31,8 +31,8 @@ requests to pirateface.co and PyPI (metadata and the wheel, inspected offline).
    (a) shell out to a user-installed client (e.g. aria2c with `--bt-*` options), or (b) a Rust crate.
    Either way the backend sits behind a trait so the queue and CLI don't change.
 5. **Licence respect.** Pirate Face lists licences and some repos need terms accepted first
-   (`lookup_magnet` returns None in that case). hfd surfaces that and does not bypass it.
-6. **No seeding.** hfd only downloads. It does not upload pieces, does not expose a seeding tracker,
+   (`lookup_magnet` returns None in that case). mdl surfaces that and does not bypass it.
+6. **No seeding.** mdl only downloads. It does not upload pieces, does not expose a seeding tracker,
    and does not run the submit/rescue endpoints.
 7. **Queue integration.** `JobSpec` gains `source: Hf | PirateFace` (default Hf, `#[serde(default)]`
    so old queue files still load, like the `flat` field).
@@ -47,5 +47,5 @@ requests to pirateface.co and PyPI (metadata and the wheel, inspected offline).
 - Explicitly out of scope on the host: real `pirateface.co` downloads, real swarm traffic, installing a torrent client.
 
 ## Open questions
-- Which torrent engine (4a vs 4b) and its licence compatibility with hfd's Apache-2.0 core.
+- Which torrent engine (4a vs 4b) and its licence compatibility with mdl's Apache-2.0 core.
 - Whether `pf_only` (no HF entry) should be allowed at all or limited to `--source pirateface --allow-hf-missing`.

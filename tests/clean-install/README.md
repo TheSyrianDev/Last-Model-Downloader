@@ -1,6 +1,6 @@
 # Clean-container install test
 
-Runs the hfd release binary in a fresh container, verifies its sha256, and downloads a 105 MB model (bartowski/SmolLM2-135M-Instruct-GGUF Q4_K_M).
+Runs the mdl release binary in a fresh container, verifies its sha256, and downloads a 105 MB model (bartowski/SmolLM2-135M-Instruct-GGUF Q4_K_M).
 
     tests/clean-install/run.sh ubuntu:24.04
     tests/clean-install/run.sh archlinux:latest

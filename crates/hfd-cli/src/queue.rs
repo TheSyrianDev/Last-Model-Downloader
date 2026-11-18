@@ -471,7 +471,7 @@ pub async fn enqueue_download(args: &DownloadArgs) -> Result<()> {
     } else {
         println!("Queued job {}", job.id);
         println!("Target: {}", job.request.target);
-        println!("Follow: hfd queue list");
+        println!("Follow: mdl queue list");
     }
     Ok(())
 }
@@ -533,7 +533,7 @@ async fn list_jobs(json: bool) -> Result<()> {
     }
     if !alive && jobs.iter().any(|job| job.status == JobStatus::Queued) {
         println!();
-        println!("Daemon is not running; run `hfd daemon` to resume queued jobs.");
+        println!("Daemon is not running; run `mdl daemon` to resume queued jobs.");
     }
     Ok(())
 }
@@ -714,14 +714,14 @@ async fn ensure_daemon() -> Result<()> {
         return Ok(());
     }
 
-    let exe = env::current_exe().context("cannot locate the hfd executable")?;
+    let exe = env::current_exe().context("cannot locate the mdl executable")?;
     Command::new(exe)
         .arg("__daemon")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .context("failed to start the hfd daemon")?;
+        .context("failed to start the mdl daemon")?;
 
     for _ in 0..50 {
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -729,7 +729,7 @@ async fn ensure_daemon() -> Result<()> {
             return Ok(());
         }
     }
-    bail!("the hfd daemon did not start; run `hfd daemon` to see the error")
+    bail!("the mdl daemon did not start; run `mdl daemon` to see the error")
 }
 
 async fn run_daemon() -> Result<()> {

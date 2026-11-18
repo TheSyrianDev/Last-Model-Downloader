@@ -7,7 +7,7 @@ version = "0.4.0-rc.1"
 edition = "2024"
 license = "PolyForm-Noncommercial-1.0.0"
 rust-version = "1.88"
-repository = "https://github.com/TheSyrianDev/hf-dl"
+repository = "https://github.com/TheSyrianDev/Model-Downloader"
 
 [workspace.dependencies]
 anyhow = "1"

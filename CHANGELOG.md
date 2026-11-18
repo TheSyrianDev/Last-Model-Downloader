@@ -2,9 +2,12 @@
 
 ## 0.4.0-rc.1 (unreleased)
 
+### Changed
+- Renamed to Model-Downloader. The two binaries are now `model-downloader` and `mdl`; `hfd` and `hf-dl` are gone. Partial-download state files keep their `.hfd.incomplete` / `.hfd.state` names so downloads started before the rename still resume.
+
 ### Added
-- `hfd download --source pirateface`: opt-in transfer through Pirate Face via `aria2c` (seeding off), every file verified by sha256. Needs `--local-dir`. Never falls back to Hugging Face. Default `--source hf` unchanged.
-- `hfd doctor` reports whether `aria2c` is installed (informational).
+- `mdl download --source pirateface`: opt-in transfer through Pirate Face via `aria2c` (seeding off), every file verified by sha256. Needs `--local-dir`. Never falls back to Hugging Face. Default `--source hf` unchanged.
+- `mdl doctor` reports whether `aria2c` is installed (informational).
 - `hfd-core` `recommend()`: picks chat/image/video models for the probe's hardware tier and reports whether each fits free RAM.
 - Queue: idempotent `add` (same repo, revision, files and local_dir return the existing id), `add_forced` for finished jobs, and failed or cancelled jobs requeue under the same id.
 
@@ -14,10 +17,10 @@
 ## 0.3.0
 
 ### Added
-- `hfd doctor`: checks network, token, Xet state and free disk, then recommends settings. `--json` for scripts. Exits 2 on a problem.
-- `hfd lastengine`: downloads the Last Engine release asset and checks it against `SHA256SUMS.txt`. Discards the file on mismatch. Defaults to hw-probe-based variant selection.
+- `mdl doctor`: checks network, token, Xet state and free disk, then recommends settings. `--json` for scripts. Exits 2 on a problem.
+- `mdl lastengine`: downloads the Last Engine release asset and checks it against `SHA256SUMS.txt`. Discards the file on mismatch. Defaults to hw-probe-based variant selection.
 - `hfd-core` `queue` module: `Queue` with add, pause, resume, cancel, list and subscribe. Persists to a JSON file so a restart resumes. Sequential by default. Cancel removes partials only with `delete_partial`.
-- `hfd lastengine --variant auto` (default) picks the build from hw-probe. NVIDIA with at least 4 GB VRAM gets `cuda`; other hardware errors.
+- `mdl lastengine --variant auto` (default) picks the build from hw-probe. NVIDIA with at least 4 GB VRAM gets `cuda`; other hardware errors.
 - Installed-model helpers in the core library: `record::list_installed` and `record::remove_installed` (see `docs/EMBEDDING.md`).
 
 ### Fixed
@@ -28,8 +31,8 @@
 ## Unreleased
 
 ### Added
-- `hfd queue pause <id>` and `hfd queue resume <id>`. A paused queued job is skipped by the worker. A paused running job is stopped, and its partial files stay on disk, so resume continues them. Paused jobs can still be cancelled.
-- Status `paused` in `hfd queue list --json` and `hfd queue show <id> --json` for polling.
+- `mdl queue pause <id>` and `mdl queue resume <id>`. A paused queued job is skipped by the worker. A paused running job is stopped, and its partial files stay on disk, so resume continues them. Paused jobs can still be cancelled.
+- Status `paused` in `mdl queue list --json` and `mdl queue show <id> --json` for polling.
 
 ## 0.2.0
 

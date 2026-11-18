@@ -135,7 +135,7 @@ fn xet_token_url(endpoint: &str, repo: &RepoRef, revision: &str) -> Result<Strin
     Ok(url.to_string())
 }
 
-/// How long Xet may go without receiving data before hfd switches to HTTP.
+/// How long Xet may go without receiving data before mdl switches to HTTP.
 pub(crate) const XET_STALL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Xet's defaults suit fast links: a dead connection holds a download slot

@@ -2,7 +2,7 @@
 """Local mock Hugging Face Hub with fault injection, for robustness tests.
 
 Serves one repo (REPO) with one file (FILE) under HUB_DIR/<FILE>. Supports
-HEAD/GET with Range, the revision and tree API endpoints hfd calls, and these
+HEAD/GET with Range, the revision and tree API endpoints mdl calls, and these
 faults:
   --drop-after N   the first --drop-count body responses are cut after N bytes
   --throttle BPS   body is sent at roughly BPS bytes per second

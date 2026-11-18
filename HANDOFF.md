@@ -1,7 +1,7 @@
 # Handoff (2026-11-12)
 
 State:
-- hfd v0.2.0 released (GitHub release, sha256 verified). Mirror main b2e3012.
+- mdl v0.2.0 released (GitHub release, sha256 verified). Mirror main b2e3012.
 - Local commit ca747fe: queue pause/resume + Paused status. Not pushed to main.
 - Branch ci-windows-check on the public mirror (run 43273737889): check, ubuntu, windows green; macOS was still running at last check.
 - Rig repo: registry/downloads.json committed locally as 38abd4d.
