@@ -337,7 +337,10 @@ impl Downloader {
         if let Some(parent) = target.partial_path().parent() {
             fs::create_dir_all(parent)?;
         }
-        self.check_space(&target, resolved.size)?;
+        let segmented = resolved.accept_ranges
+            && resolved.size >= SEGMENT_THRESHOLD
+            && self.options.connections > 1;
+        self.check_space(&target, resolved.size, repo, path, &resolved, segmented)?;
 
         let xet_result = if engine == Engine::Xet {
             if self.options.engine == Engine::Auto {
@@ -390,10 +393,6 @@ impl Downloader {
                 engine,
             });
         }
-
-        let segmented = resolved.accept_ranges
-            && resolved.size >= SEGMENT_THRESHOLD
-            && self.options.connections > 1;
 
         let result = if segmented {
             self.download_segmented(repo, path, revision, &resolved, &target, sink)
@@ -724,7 +723,15 @@ impl Downloader {
         Ok((0, "http-single"))
     }
 
-    pub(crate) fn check_space(&self, target: &Target, size: u64) -> Result<()> {
+    pub(crate) fn check_space(
+        &self,
+        target: &Target,
+        size: u64,
+        repo: &RepoRef,
+        path: &str,
+        resolved: &ResolvedFile,
+        segmented: bool,
+    ) -> Result<()> {
         if size == 0 {
             return Ok(());
         }
@@ -740,9 +747,39 @@ impl Downloader {
             }
         }
         let available = fs2::available_space(&probe).unwrap_or(u64::MAX);
-        if available < size {
+        // Segmented downloads preallocate the full logical file size, so file
+        // length alone cannot tell us how much disk space is already occupied
+        // by downloaded data. Credit only chunks from a matching saved state.
+        let already_downloaded = if segmented {
+            let identity = StateIdentity {
+                repo_id: &repo.repo_id,
+                repo_type: repo.repo_type.as_str(),
+                commit: &resolved.commit,
+                path,
+                size,
+                etag: resolved.etag.as_deref().unwrap_or(""),
+                unit_size: unit_size_for(size),
+            };
+            let full_partial = fs::metadata(target.partial_path())
+                .is_ok_and(|metadata| metadata.is_file() && metadata.len() == size);
+            if full_partial {
+                load_valid(target.state_path(), &identity)
+                    .map(|state| state.completed_bytes())
+                    .unwrap_or(0)
+            } else {
+                0
+            }
+        } else {
+            fs::metadata(target.partial_path())
+                .ok()
+                .filter(|metadata| metadata.is_file())
+                .map(|metadata| metadata.len().min(size))
+                .unwrap_or(0)
+        };
+        let needed = size.saturating_sub(already_downloaded);
+        if available < needed {
             return Err(Error::NoSpace {
-                need: size,
+                need: needed,
                 available,
             });
         }
