@@ -79,7 +79,7 @@ Model-Downloader is the download half of a four-part, local-first AI suite. Each
 
 ## License
 
-Copyright (c) 2026 Omar Baroud.
+Copyright (c) 2026 Omar Barood.
 
 This repository uses two licenses:
 
